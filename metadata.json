@@ -1,0 +1,6 @@
+{
+  "name": "CineVault",
+  "description": "Your Personal Cinema — Premium self-hosted local media library and OTT movie player.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
