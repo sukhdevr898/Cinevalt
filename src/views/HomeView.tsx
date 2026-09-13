@@ -44,10 +44,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
   if (videos.length === 0) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-20 text-center">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-[#E50914]/15 text-[#E50914] shadow-2xl shadow-[#E50914]/20">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-indigo-500/15 text-indigo-400 shadow-[0_0_40px_-10px_rgba(99,102,241,0.5)] border border-indigo-500/20">
           <Film className="h-10 w-10" />
         </div>
-        <h2 className="mt-6 text-2xl sm:text-3xl font-extrabold text-white font-['Manrope']">
+        <h2 className="mt-8 text-3xl sm:text-4xl font-extrabold text-white font-['Outfit'] tracking-tight">
           Your Cinema is Waiting
         </h2>
         <p className="mt-3 text-sm sm:text-base text-[#A1A1AA] leading-relaxed">
@@ -58,7 +58,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={onOpenAddFolder}
-            className="flex items-center space-x-2 rounded-xl bg-[#E50914] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-[#E50914]/40 hover:bg-[#F6121D] active:scale-95 transition-all"
+            className="flex items-center space-x-2 rounded-2xl bg-indigo-500 px-7 py-3.5 text-sm font-bold text-white shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:bg-indigo-400 hover:shadow-[0_0_30px_rgba(99,102,241,0.6)] active:scale-95 transition-all"
           >
             <FolderPlus className="h-4 w-4" />
             <span>Add Local Folder</span>
@@ -67,7 +67,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <button
             onClick={onCreateSampleMedia}
             disabled={isCreatingSample}
-            className="flex items-center space-x-2 rounded-xl border border-white/10 bg-[#181B24] px-5 py-3 text-sm font-semibold text-white hover:bg-white/10 active:scale-95 transition-all disabled:opacity-50"
+            className="flex items-center space-x-2 rounded-2xl border border-white/10 bg-[#0f172a] px-7 py-3.5 text-sm font-semibold text-white hover:bg-white/10 hover:border-white/20 active:scale-95 transition-all disabled:opacity-50"
           >
             <Sparkles className="h-4 w-4 text-amber-400" />
             <span>{isCreatingSample ? 'Preparing Sample Media...' : 'Load Demo Videos'}</span>
@@ -93,16 +93,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {continueWatching.length > 0 && (
         <section className="space-y-4">
           <div className="flex items-center space-x-2.5">
-            <Clock className="h-5 w-5 text-[#E50914]" />
-            <h2 className="text-xl font-bold tracking-tight text-white font-['Manrope']">
+            <Clock className="h-5 w-5 text-indigo-400" />
+            <h2 className="text-xl font-bold tracking-tight text-white font-['Outfit']">
               Continue Watching
             </h2>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {continueWatching.map((v) => (
+            {continueWatching.map((v, i) => (
               <MovieCard
                 key={v.id}
                 video={v}
+                index={i}
                 onPlay={onPlay}
                 onOpenDetails={onOpenDetails}
                 onToggleFavorite={onToggleFavorite}
@@ -116,16 +117,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {favorites.length > 0 && (
         <section className="space-y-4">
           <div className="flex items-center space-x-2.5">
-            <Heart className="h-5 w-5 text-[#E50914] fill-current" />
-            <h2 className="text-xl font-bold tracking-tight text-white font-['Manrope']">
+            <Heart className="h-5 w-5 text-rose-500 fill-current" />
+            <h2 className="text-xl font-bold tracking-tight text-white font-['Outfit']">
               Favorite Movies
             </h2>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {favorites.map((v) => (
+            {favorites.map((v, i) => (
               <MovieCard
                 key={v.id}
                 video={v}
+                index={i}
                 onPlay={onPlay}
                 onOpenDetails={onOpenDetails}
                 onToggleFavorite={onToggleFavorite}
@@ -140,16 +142,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <Sparkles className="h-5 w-5 text-amber-400" />
-            <h2 className="text-xl font-bold tracking-tight text-white font-['Manrope']">
+            <h2 className="text-xl font-bold tracking-tight text-white font-['Outfit']">
               Recently Added
             </h2>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {recentlyAdded.map((v) => (
+          {recentlyAdded.map((v, i) => (
             <MovieCard
               key={v.id}
               video={v}
+              index={i}
               onPlay={onPlay}
               onOpenDetails={onOpenDetails}
               onToggleFavorite={onToggleFavorite}
@@ -163,7 +166,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <section key={folderName} className="space-y-4">
           <div className="flex items-center space-x-2.5">
             <Folder className="h-5 w-5 text-[#A1A1AA]" />
-            <h2 className="text-xl font-bold tracking-tight text-white font-['Manrope']">
+            <h2 className="text-xl font-bold tracking-tight text-white font-['Outfit']">
               {folderName}
             </h2>
             <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-[#A1A1AA]">
@@ -171,10 +174,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {folderVideos.slice(0, 12).map((v) => (
+            {folderVideos.slice(0, 12).map((v, i) => (
               <MovieCard
                 key={v.id}
                 video={v}
+                index={i}
                 onPlay={onPlay}
                 onOpenDetails={onOpenDetails}
                 onToggleFavorite={onToggleFavorite}

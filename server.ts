@@ -40,7 +40,7 @@ async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     console.log('[CineVault] Running in development mode with Vite middleware...');
     const vite = await createViteServer({
-      server: { middlewareMode: true, host: HOST, port: PORT },
+      server: { middlewareMode: true, host: HOST, port: PORT, allowedHosts: 'all' },
       appType: 'spa',
     });
     app.use(vite.middlewares);

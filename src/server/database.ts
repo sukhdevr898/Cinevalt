@@ -6,6 +6,7 @@ export interface FolderRecord {
   id: number;
   name: string;
   path: string;
+  folder_type: 'local' | 'youtube' | 'gdrive';
   enabled: number;
   created_at: string;
   updated_at: string;
@@ -18,6 +19,9 @@ export interface VideoRecord {
   id: number;
   folder_id: number;
   folder_name?: string;
+  source_type: 'local' | 'youtube' | 'gdrive';
+  remote_url: string | null;
+  thumbnail_url: string | null;
   absolute_path: string;
   relative_path: string;
   filename: string;
@@ -101,6 +105,7 @@ function initSchema(database: Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       path TEXT NOT NULL UNIQUE,
+      folder_type TEXT DEFAULT 'local',
       enabled INTEGER DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -112,6 +117,9 @@ function initSchema(database: Database) {
     CREATE TABLE IF NOT EXISTS videos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       folder_id INTEGER NOT NULL,
+      source_type TEXT DEFAULT 'local',
+      remote_url TEXT,
+      thumbnail_url TEXT,
       absolute_path TEXT NOT NULL UNIQUE,
       relative_path TEXT NOT NULL,
       filename TEXT NOT NULL,
@@ -160,6 +168,11 @@ function initSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_videos_title ON videos(title);
     CREATE INDEX IF NOT EXISTS idx_progress_video ON playback_progress(video_id);
   `);
+
+  try { database.run("ALTER TABLE folders ADD COLUMN folder_type TEXT DEFAULT 'local'"); } catch(e) {}
+  try { database.run("ALTER TABLE videos ADD COLUMN source_type TEXT DEFAULT 'local'"); } catch(e) {}
+  try { database.run("ALTER TABLE videos ADD COLUMN remote_url TEXT"); } catch(e) {}
+  try { database.run("ALTER TABLE videos ADD COLUMN thumbnail_url TEXT"); } catch(e) {}
 
   // Default settings
   const defaultSettings: Record<string, string> = {

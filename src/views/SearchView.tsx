@@ -105,10 +105,11 @@ export const SearchView: React.FC<SearchViewProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {results.map((video) => (
+          {results.map((video, i) => (
             <MovieCard
               key={video.id}
               video={video}
+              index={i}
               onPlay={onPlay}
               onOpenDetails={onOpenDetails}
               onToggleFavorite={onToggleFavorite}

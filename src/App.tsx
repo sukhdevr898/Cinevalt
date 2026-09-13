@@ -172,7 +172,8 @@ export default function App() {
   }, [videos]);
 
   return (
-    <div className="min-h-screen bg-[#08090D] text-[#F8FAFC] flex flex-col font-['Inter',sans-serif]">
+    <div className="min-h-screen bg-[#030712] text-[#F8FAFC] flex flex-col font-['Plus_Jakarta_Sans',sans-serif] selection:bg-indigo-500/30 selection:text-indigo-200">
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/10 via-[#030712] to-[#030712] pointer-events-none -z-10" />
       {/* Navbar */}
       <Navbar
         currentView={currentView}

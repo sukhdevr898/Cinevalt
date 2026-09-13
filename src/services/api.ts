@@ -41,10 +41,10 @@ export const api = {
     return fetchJson<Folder[]>('/api/folders');
   },
 
-  async addFolder(folderPath: string, name?: string): Promise<Folder> {
+  async addFolder(folderPath: string, name?: string, folder_type: 'local' | 'youtube' | 'gdrive' = 'local'): Promise<Folder> {
     return fetchJson<Folder>('/api/folders', {
       method: 'POST',
-      body: JSON.stringify({ path: folderPath, name })
+      body: JSON.stringify({ path: folderPath, name, folder_type })
     });
   },
 

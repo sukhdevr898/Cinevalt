@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import ReactPlayer from 'react-player';
 import {
   Play,
   Pause,
@@ -34,17 +35,26 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   onSelectVideo,
   autoplayNext = true
 }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const controlsTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(video.duration_seconds || 0);
-  const [volume, setVolume] = useState<number>(1);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [volume, setVolume] = useState<number>(() => {
+    const saved = localStorage.getItem('cinevault_volume');
+    return saved !== null ? parseFloat(saved) : 1;
+  });
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    const saved = localStorage.getItem('cinevault_muted');
+    return saved !== null ? saved === 'true' : false;
+  });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
+    const saved = localStorage.getItem('cinevault_speed');
+    return saved !== null ? parseFloat(saved) : 1;
+  });
   const [showSpeedMenu, setShowSpeedMenu] = useState<boolean>(false);
   const [showControls, setShowControls] = useState<boolean>(true);
   const [hasError, setHasError] = useState<string | null>(null);
@@ -60,7 +70,9 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   const nextVideo = currentIndex < allVideos.length - 1 ? allVideos[currentIndex + 1] : null;
 
   // Stream URL
-  const streamUrl = api.getVideoStreamUrl(video.id);
+  const streamUrl = video.source_type === 'youtube' || video.source_type === 'gdrive' 
+    ? (video.remote_url || video.absolute_path)
+    : api.getVideoStreamUrl(video.id);
 
   // Auto-hide controls after 3 seconds of inactivity
   const handleMouseMove = () => {
@@ -84,28 +96,21 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
   // Play / Pause toggle
   const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      videoRef.current.play().catch((err) => {
-        console.warn('Playback play failed:', err);
-      });
-    } else {
-      videoRef.current.pause();
-    }
+    setIsPlaying(!isPlaying);
   };
 
   // Seek helper
   const seekTo = (seconds: number) => {
-    if (!videoRef.current) return;
-    const target = Math.max(0, Math.min(seconds, duration));
-    videoRef.current.currentTime = target;
+    if (!playerRef.current) return;
+    const target = Math.max(0, Math.min(seconds, duration || 100));
+    playerRef.current.currentTime = target;
     setCurrentTime(target);
   };
 
   // Step seek (-10s / +10s)
   const stepSeek = (delta: number) => {
-    if (!videoRef.current) return;
-    seekTo(videoRef.current.currentTime + delta);
+    if (!playerRef.current) return;
+    seekTo((playerRef.current.currentTime || 0) + delta);
   };
 
   // Fullscreen toggle
@@ -122,11 +127,22 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
   // Speed change
   const handleSpeedChange = (speed: number) => {
-    if (!videoRef.current) return;
-    videoRef.current.playbackRate = speed;
     setPlaybackSpeed(speed);
     setShowSpeedMenu(false);
   };
+
+  // Persist user preferences
+  useEffect(() => {
+    localStorage.setItem('cinevault_volume', volume.toString());
+  }, [volume]);
+
+  useEffect(() => {
+    localStorage.setItem('cinevault_muted', isMuted.toString());
+  }, [isMuted]);
+
+  useEffect(() => {
+    localStorage.setItem('cinevault_speed', playbackSpeed.toString());
+  }, [playbackSpeed]);
 
   // Keyboard navigation & controls
   useEffect(() => {
@@ -150,19 +166,11 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           break;
         case 'ArrowUp':
           e.preventDefault();
-          setVolume((prev) => {
-            const next = Math.min(1, prev + 0.1);
-            if (videoRef.current) videoRef.current.volume = next;
-            return next;
-          });
+          setVolume((prev) => Math.min(1, prev + 0.1));
           break;
         case 'ArrowDown':
           e.preventDefault();
-          setVolume((prev) => {
-            const next = Math.max(0, prev - 0.1);
-            if (videoRef.current) videoRef.current.volume = next;
-            return next;
-          });
+          setVolume((prev) => Math.max(0, prev - 0.1));
           break;
         case 'f':
         case 'F':
@@ -172,11 +180,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
         case 'm':
         case 'M':
           e.preventDefault();
-          setIsMuted((prev) => {
-            const next = !prev;
-            if (videoRef.current) videoRef.current.muted = next;
-            return next;
-          });
+          setIsMuted((prev) => !prev);
           break;
         case 'Escape':
           e.preventDefault();
@@ -196,22 +200,22 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   // Periodic progress saving every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (videoRef.current && !videoRef.current.paused) {
-        saveProgress(videoRef.current.currentTime, videoRef.current.duration);
+      if (playerRef.current && isPlaying) {
+        saveProgress(playerRef.current.currentTime || 0, playerRef.current.duration || duration);
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [saveProgress]);
+  }, [saveProgress, isPlaying, duration]);
 
   // Save progress on unmount / close
   useEffect(() => {
     return () => {
-      if (videoRef.current) {
-        saveProgress(videoRef.current.currentTime, videoRef.current.duration);
+      if (playerRef.current) {
+        saveProgress(playerRef.current.currentTime || 0, playerRef.current.duration || duration);
       }
     };
-  }, [saveProgress]);
+  }, [saveProgress, duration]);
 
   return (
     <div
@@ -228,8 +232,8 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
         <div className="flex items-center space-x-4">
           <button
             onClick={() => {
-              if (videoRef.current) {
-                saveProgress(videoRef.current.currentTime, videoRef.current.duration);
+              if (playerRef.current) {
+                saveProgress(playerRef.current.currentTime || 0, playerRef.current.duration || duration);
               }
               onClose();
             }}
@@ -243,7 +247,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
               {video.title}
             </h2>
             <p className="text-xs text-[#A1A1AA]">
-              {video.folder_name} • {video.extension.replace('.', '').toUpperCase()}
+              {video.folder_name} • {(video.source_type || 'local').toUpperCase()}
             </p>
           </div>
         </div>
@@ -251,8 +255,8 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
       {/* Resume Notification Prompt if partially watched */}
       {resumePrompt !== null && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-3 rounded-xl border border-white/10 bg-[#181B24]/90 px-4 py-2.5 shadow-2xl backdrop-blur-md">
-          <span className="text-xs font-medium text-white">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-3 rounded-2xl border border-white/10 bg-[#0f172a]/95 px-5 py-3 shadow-[0_0_40px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-all">
+          <span className="text-xs font-semibold text-white tracking-wide">
             Resume from {formatTimeCode(resumePrompt)}?
           </span>
           <button
@@ -260,13 +264,13 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
               seekTo(resumePrompt);
               setResumePrompt(null);
             }}
-            className="rounded-lg bg-[#E50914] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#F6121D]"
+            className="rounded-lg bg-indigo-500 px-3 py-1.5 text-xs font-bold text-white shadow-[0_0_15px_rgba(99,102,241,0.5)] hover:bg-indigo-400 active:scale-95 transition-all"
           >
             Resume
           </button>
           <button
             onClick={() => setResumePrompt(null)}
-            className="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-medium text-white/80 hover:bg-white/20"
+            className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/20 hover:text-white active:scale-95 transition-all"
           >
             Start Over
           </button>
@@ -275,70 +279,81 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
       {/* Main Video Viewport */}
       <div
-        onClick={togglePlay}
-        className="relative flex flex-1 items-center justify-center overflow-hidden cursor-pointer"
+        className="relative flex flex-1 items-center justify-center overflow-hidden"
       >
-        <video
-          ref={videoRef}
+        <div className="absolute inset-0 z-0 pointer-events-none" />
+        
+        <ReactPlayer
+          ref={playerRef as any}
           src={streamUrl}
-          playsInline
-          autoPlay
+          playing={isPlaying}
+          volume={volume}
+          muted={isMuted}
+          playbackRate={playbackSpeed}
+          width="100%"
+          height="100%"
+          style={{ position: 'absolute', top: 0, left: 0 }}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onWaiting={() => setIsLoading(true)}
           onPlaying={() => setIsLoading(false)}
-          onTimeUpdate={() => {
-            if (videoRef.current) {
-              setCurrentTime(videoRef.current.currentTime);
+          onTimeUpdate={(e: any) => {
+            const current = e.currentTarget?.currentTime || 0;
+            setCurrentTime(current);
+            if (!duration && e.currentTarget?.duration > 0) {
+              setDuration(e.currentTarget.duration);
             }
           }}
-          onLoadedMetadata={() => {
-            if (videoRef.current) {
-              setDuration(videoRef.current.duration);
-              setIsLoading(false);
-              // Auto resume if configured
-              if (video.position_seconds && video.position_seconds > 10 && !video.completed) {
-                videoRef.current.currentTime = video.position_seconds;
-              }
+          onDurationChange={(e: any) => {
+            const dur = e.currentTarget?.duration || 0;
+            setDuration(dur);
+            setIsLoading(false);
+            if (video.position_seconds && video.position_seconds > 10 && !video.completed && resumePrompt === null) {
+               seekTo(video.position_seconds);
             }
           }}
           onEnded={() => {
             setIsPlaying(false);
-            if (videoRef.current) {
-              saveProgress(videoRef.current.duration, videoRef.current.duration);
+            if (playerRef.current) {
+              saveProgress(duration, duration);
             }
             if (autoplayNext && nextVideo) {
               onSelectVideo(nextVideo);
             }
           }}
-          onError={(_e) => {
+          onError={(e) => {
             setIsLoading(false);
-            setHasError(
-              `The browser cannot decode this media container (${video.extension}). Native browser playback supports MP4 (H.264/AAC) and WebM (VP8/VP9/AV1).`
-            );
+            console.error('ReactPlayer error', e);
+            setHasError(`Unable to play media source (${video.source_type}). Ensure API limits or permissions are valid.`);
           }}
-          className="max-h-full max-w-full object-contain"
+          config={{
+            youtube: { playerVars: { modestbranding: 1, controls: 0 } },
+            html: { attributes: { playsInline: true, crossOrigin: 'anonymous' } }
+          } as any}
         />
 
         {/* Center Spinner Loader */}
         {isLoading && !hasError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none z-10">
             <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#E50914] border-t-transparent" />
           </div>
         )}
 
+        {/* Invisible overlay to catch clicks for play/pause toggling */}
+        <div className="absolute inset-0 z-10 cursor-pointer" onClick={togglePlay} />
+
         {/* Play / Pause Flash Overlay Icon */}
         {!isPlaying && !isLoading && !hasError && (
-          <div className="absolute flex h-20 w-20 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md pointer-events-none">
+          <div className="absolute z-10 flex h-20 w-20 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md pointer-events-none">
             <Play className="h-10 w-10 fill-current translate-x-1" />
           </div>
         )}
 
         {/* Error State Banner */}
         {hasError && (
-          <div className="absolute max-w-lg rounded-2xl border border-red-500/30 bg-[#181B24]/95 p-6 text-center shadow-2xl backdrop-blur-md">
+          <div className="absolute z-10 max-w-lg rounded-2xl border border-red-500/30 bg-[#181B24]/95 p-6 text-center shadow-2xl backdrop-blur-md">
             <AlertTriangle className="mx-auto h-12 w-12 text-[#E50914]" />
-            <h3 className="mt-3 text-lg font-bold text-white">Playback Format Unsupported</h3>
+            <h3 className="mt-3 text-lg font-bold text-white">Playback Error</h3>
             <p className="mt-2 text-sm text-[#A1A1AA] leading-relaxed">{hasError}</p>
             <div className="mt-4 flex justify-center space-x-3">
               <button
@@ -366,19 +381,19 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
             max={duration || 100}
             value={currentTime}
             onChange={(e) => seekTo(parseFloat(e.target.value))}
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-white/20 accent-[#E50914] focus:outline-none"
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/20 accent-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             aria-label="Seek Slider"
           />
         </div>
 
         {/* Main Controls Row */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mt-2">
           {/* Left Controls: Prev, Play, Next, Seek Steps, Volume */}
-          <div className="flex items-center space-x-2 sm:space-x-4">
+          <div className="flex items-center space-x-2 sm:space-x-5">
             <button
               onClick={() => prevVideo && onSelectVideo(prevVideo)}
               disabled={!prevVideo}
-              className="rounded-lg p-2 text-white/80 transition-colors hover:text-white disabled:opacity-30"
+              className="rounded-full p-2.5 text-white/80 transition-all hover:bg-white/10 hover:text-white disabled:opacity-30 active:scale-95"
               title="Previous Video"
               aria-label="Previous Video"
             >
@@ -387,20 +402,20 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
             <button
               onClick={togglePlay}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-[#E50914] text-white shadow-lg shadow-[#E50914]/40 transition-transform hover:scale-105 active:scale-95"
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-black shadow-[0_0_30px_rgba(255,255,255,0.4)] transition-transform hover:scale-110 hover:bg-indigo-500 hover:text-white hover:shadow-[0_0_30px_rgba(99,102,241,0.6)] active:scale-95 z-20"
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? (
-                <Pause className="h-5 w-5 fill-current" />
+                <Pause className="h-6 w-6 fill-current" />
               ) : (
-                <Play className="h-5 w-5 fill-current translate-x-0.5" />
+                <Play className="h-6 w-6 fill-current translate-x-0.5" />
               )}
             </button>
 
             <button
               onClick={() => nextVideo && onSelectVideo(nextVideo)}
               disabled={!nextVideo}
-              className="rounded-lg p-2 text-white/80 transition-colors hover:text-white disabled:opacity-30"
+              className="rounded-full p-2.5 text-white/80 transition-all hover:bg-white/10 hover:text-white disabled:opacity-30 active:scale-95"
               title="Next Video"
               aria-label="Next Video"
             >
@@ -428,11 +443,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
             {/* Volume */}
             <div className="flex items-center space-x-2">
               <button
-                onClick={() => {
-                  const next = !isMuted;
-                  setIsMuted(next);
-                  if (videoRef.current) videoRef.current.muted = next;
-                }}
+                onClick={() => setIsMuted(!isMuted)}
                 className="rounded-lg p-2 text-white/80 hover:text-white"
                 aria-label={isMuted ? 'Unmute' : 'Mute'}
               >
@@ -452,10 +463,6 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
                   const val = parseFloat(e.target.value);
                   setVolume(val);
                   setIsMuted(false);
-                  if (videoRef.current) {
-                    videoRef.current.volume = val;
-                    videoRef.current.muted = false;
-                  }
                 }}
                 className="hidden md:inline-block h-1.5 w-20 cursor-pointer appearance-none rounded-lg bg-white/20 accent-white"
                 aria-label="Volume Slider"
@@ -471,7 +478,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           </div>
 
           {/* Right Controls: Speed, Fullscreen */}
-          <div className="relative flex items-center space-x-2">
+          <div className="relative flex items-center space-x-2 z-20">
             {/* Speed Selector */}
             <div className="relative">
               <button

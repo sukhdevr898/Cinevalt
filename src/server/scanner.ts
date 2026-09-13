@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getDb, queryAll, queryOne, runQuery, FolderRecord, VideoRecord } from './database.js';
 import { isSupportedVideo, getMimeType, deriveTitleFromFilename } from './mimeTypes.js';
+import { scanYouTubePlaylist, scanDriveFolder } from './cloudScanner.js';
 
 export interface ScanStats {
   folderId?: number;
@@ -59,6 +60,28 @@ export async function scanFolder(folderId: number): Promise<ScanStats> {
     }
 
     stats.folderPath = folder.path;
+
+    if (folder.folder_type === 'youtube') {
+      runQuery("UPDATE folders SET scan_status = 'scanning', updated_at = ? WHERE id = ?", [new Date().toISOString(), folderId]);
+      const ytStats = await scanYouTubePlaylist(folderId, folder.path);
+      stats.newVideos = ytStats.newVideos;
+      stats.updatedVideos = ytStats.updatedVideos;
+      stats.videosFound = ytStats.videosFound;
+      isScanning = false;
+      currentScanFolderId = null;
+      stats.scanDurationMs = Date.now() - startTime;
+      return stats;
+    } else if (folder.folder_type === 'gdrive') {
+      runQuery("UPDATE folders SET scan_status = 'scanning', updated_at = ? WHERE id = ?", [new Date().toISOString(), folderId]);
+      const driveStats = await scanDriveFolder(folderId, folder.path);
+      stats.newVideos = driveStats.newVideos;
+      stats.updatedVideos = driveStats.updatedVideos;
+      stats.videosFound = driveStats.videosFound;
+      isScanning = false;
+      currentScanFolderId = null;
+      stats.scanDurationMs = Date.now() - startTime;
+      return stats;
+    }
 
     // Check directory accessibility
     try {

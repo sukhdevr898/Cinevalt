@@ -93,7 +93,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       {/* Header & Controls Bar */}
       <div className="flex flex-col gap-4 border-b border-white/5 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-['Manrope']">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-['Outfit']">
             {filter === 'favorites' ? 'Favorite Movies' : 'Media Library'}
           </h1>
           <p className="mt-1 text-xs text-[#A1A1AA]">
@@ -103,11 +103,11 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
 
         {/* View Toggle & Count */}
         <div className="flex items-center space-x-2 self-start md:self-auto">
-          <div className="flex items-center rounded-xl border border-white/10 bg-[#11131A] p-1">
+          <div className="flex items-center rounded-2xl border border-white/10 bg-[#0f172a] p-1">
             <button
               onClick={() => setViewMode('grid')}
-              className={`rounded-lg p-2 transition-colors ${
-                viewMode === 'grid' ? 'bg-[#E50914] text-white' : 'text-[#71717A] hover:text-white'
+              className={`rounded-xl p-2 transition-colors ${
+                viewMode === 'grid' ? 'bg-indigo-500 text-white shadow-lg' : 'text-[#71717A] hover:text-white'
               }`}
               title="Grid View"
               aria-label="Grid View"
@@ -116,8 +116,8 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`rounded-lg p-2 transition-colors ${
-                viewMode === 'list' ? 'bg-[#E50914] text-white' : 'text-[#71717A] hover:text-white'
+              className={`rounded-xl p-2 transition-colors ${
+                viewMode === 'list' ? 'bg-indigo-500 text-white shadow-lg' : 'text-[#71717A] hover:text-white'
               }`}
               title="List View"
               aria-label="List View"
@@ -131,13 +131,13 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       {/* Filter and Sort Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Status Filter Pills */}
-        <div className="flex flex-wrap items-center rounded-xl border border-white/5 bg-[#11131A] p-1 text-xs font-semibold">
+        <div className="flex flex-wrap items-center rounded-2xl border border-white/5 bg-[#0f172a] p-1 text-xs font-bold">
           {(['all', 'unwatched', 'watched', 'favorites'] as FilterOption[]).map((opt) => (
             <button
               key={opt}
               onClick={() => setFilter(opt)}
-              className={`rounded-lg px-3 py-1.5 capitalize transition-colors ${
-                filter === opt ? 'bg-white/10 text-white' : 'text-[#71717A] hover:text-white'
+              className={`rounded-xl px-4 py-2 capitalize transition-all ${
+                filter === opt ? 'bg-white/10 text-white shadow-sm' : 'text-[#71717A] hover:text-white hover:bg-white/5'
               }`}
             >
               {opt}
@@ -196,25 +196,26 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
 
       {/* Media Grid or List Display */}
       {filteredVideos.length === 0 ? (
-        <div className="rounded-2xl border border-white/5 bg-[#11131A] p-12 text-center">
-          <p className="text-sm font-medium text-[#A1A1AA]">No videos matched your filter criteria.</p>
+        <div className="rounded-3xl border border-white/5 bg-[#0f172a] p-12 text-center shadow-lg">
+          <p className="text-sm font-semibold text-[#A1A1AA]">No videos matched your filter criteria.</p>
           <button
             onClick={() => {
               setFilter('all');
               setSelectedFolder('all');
               setSelectedExt('all');
             }}
-            className="mt-3 text-xs font-semibold text-[#E50914] hover:underline"
+            className="mt-3 text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors"
           >
             Reset all filters
           </button>
         </div>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {filteredVideos.map((video) => (
+          {filteredVideos.map((video, i) => (
             <MovieCard
               key={video.id}
               video={video}
+              index={i}
               onPlay={onPlay}
               onOpenDetails={onOpenDetails}
               onToggleFavorite={onToggleFavorite}
@@ -223,25 +224,25 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
         </div>
       ) : (
         /* List View */
-        <div className="divide-y divide-white/5 rounded-2xl border border-white/5 bg-[#11131A] overflow-hidden">
+        <div className="divide-y divide-white/5 rounded-3xl border border-white/5 bg-[#0f172a] shadow-lg overflow-hidden">
           {filteredVideos.map((video) => (
             <div
               key={video.id}
-              className="flex items-center justify-between p-3 sm:p-4 hover:bg-white/[0.02] transition-colors"
+              className="flex items-center justify-between p-3 sm:p-4 hover:bg-white/[0.03] transition-colors"
             >
               <div className="flex items-center space-x-3.5 min-w-0 flex-1">
                 <button
                   onClick={() => onPlay(video)}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#E50914] text-white shadow-md hover:scale-105 active:scale-95 transition-transform"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-black shadow-lg hover:scale-105 hover:bg-indigo-500 hover:text-white active:scale-95 transition-all"
                   aria-label={`Play ${video.title}`}
                 >
-                  <Play className="h-4 w-4 fill-current translate-x-0.5" />
+                  <Play className="h-5 w-5 fill-current translate-x-0.5" />
                 </button>
 
                 <div className="min-w-0 flex-1">
                   <h3
                     onClick={() => onOpenDetails(video)}
-                    className="truncate text-sm font-semibold text-white hover:text-[#E50914] cursor-pointer"
+                    className="truncate text-sm font-bold text-white hover:text-indigo-400 cursor-pointer transition-colors"
                   >
                     {video.title}
                   </h3>

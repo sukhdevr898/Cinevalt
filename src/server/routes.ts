@@ -80,46 +80,55 @@ export function createApiRouter(): Router {
 
   router.post('/folders', async (req: Request, res: Response) => {
     try {
-      const { path: folderPath, name } = req.body;
+      const { path: folderPath, name, folder_type = 'local' } = req.body;
       if (!folderPath || typeof folderPath !== 'string') {
-        return sendError(res, 'INVALID_PATH', 'A valid folder path must be provided.');
+        return sendError(res, 'INVALID_PATH', 'A valid path or ID must be provided.');
       }
 
       const trimmedPath = folderPath.trim();
-      const resolvedPath = path.resolve(trimmedPath);
+      let resolvedPath = trimmedPath;
+      
+      // For local folders, resolve and check fs
+      if (folder_type === 'local') {
+        resolvedPath = path.resolve(trimmedPath);
 
-      // Validate folder exists and is a directory
-      if (!fs.existsSync(resolvedPath)) {
-        return sendError(res, 'FOLDER_NOT_FOUND', `Directory does not exist: "${resolvedPath}"`);
-      }
+        // Validate folder exists and is a directory
+        if (!fs.existsSync(resolvedPath)) {
+          return sendError(res, 'FOLDER_NOT_FOUND', `Directory does not exist: "${resolvedPath}"`);
+        }
 
-      const stat = fs.statSync(resolvedPath);
-      if (!stat.isDirectory()) {
-        return sendError(res, 'NOT_A_DIRECTORY', `Specified path is not a directory: "${resolvedPath}"`);
-      }
+        const stat = fs.statSync(resolvedPath);
+        if (!stat.isDirectory()) {
+          return sendError(res, 'NOT_A_DIRECTORY', `Specified path is not a directory: "${resolvedPath}"`);
+        }
 
-      // Check readable
-      try {
-        fs.accessSync(resolvedPath, fs.constants.R_OK);
-      } catch {
-        return sendError(res, 'PERMISSION_DENIED', `Permission denied reading folder: "${resolvedPath}"`);
+        // Check readable
+        try {
+          fs.accessSync(resolvedPath, fs.constants.R_OK);
+        } catch {
+          return sendError(res, 'PERMISSION_DENIED', `Permission denied reading folder: "${resolvedPath}"`);
+        }
       }
 
       await getDb();
-      const existing = queryOne<FolderRecord>('SELECT id FROM folders WHERE path = ?', [resolvedPath]);
+      const existing = queryOne<FolderRecord>('SELECT id FROM folders WHERE path = ? AND folder_type = ?', [resolvedPath, folder_type]);
       if (existing) {
-        return sendError(res, 'DUPLICATE_FOLDER', `This folder is already registered in CineVault.`);
+        return sendError(res, 'DUPLICATE_FOLDER', `This folder/playlist is already registered in CineVault.`);
       }
 
+      let defaultName = resolvedPath;
+      if (folder_type === 'youtube') defaultName = 'YouTube Playlist';
+      if (folder_type === 'gdrive') defaultName = 'Google Drive Folder';
+      
       const folderName = (name && typeof name === 'string' && name.trim()) 
         ? name.trim() 
-        : path.basename(resolvedPath) || resolvedPath;
+        : (folder_type === 'local' ? path.basename(resolvedPath) || resolvedPath : defaultName);
 
       const now = new Date().toISOString();
       const result = runQuery(
-        `INSERT INTO folders (name, path, enabled, created_at, updated_at, scan_status, video_count)
-         VALUES (?, ?, 1, ?, ?, 'idle', 0)`,
-        [folderName, resolvedPath, now, now]
+        `INSERT INTO folders (name, path, folder_type, enabled, created_at, updated_at, scan_status, video_count)
+         VALUES (?, ?, ?, 1, ?, ?, 'idle', 0)`,
+        [folderName, resolvedPath, folder_type, now, now]
       );
 
       const newFolder = queryOne<FolderRecord>('SELECT * FROM folders WHERE id = ?', [result.lastInsertRowid]);

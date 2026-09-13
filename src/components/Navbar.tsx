@@ -1,5 +1,6 @@
 import React from 'react';
 import { Film, Home, Clapperboard, Heart, Search, Settings, Plus, RefreshCw } from 'lucide-react';
+import { motion } from 'motion/react';
 import { ViewType, LibraryStats } from '../types';
 
 interface NavbarProps {
@@ -26,7 +27,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       {/* Desktop & Tablet Top Navigation */}
-      <header className="sticky top-0 z-40 w-full border-b border-white/5 bg-[#08090D]/90 backdrop-blur-md">
+      <motion.header 
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="sticky top-0 z-40 w-full border-b border-white/5 bg-[#030712]/80 backdrop-blur-xl"
+      >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Logo & Brand */}
           <div className="flex items-center space-x-8">
@@ -39,10 +45,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Film className="h-5 w-5 text-white" />
               </div>
               <div>
-                <span className="text-xl font-extrabold tracking-tight text-white font-['Manrope']">
+                <span className="text-xl font-extrabold tracking-tight text-white font-['Outfit']">
                   {appName}
                 </span>
-                <span className="hidden text-[11px] font-medium text-[#71717A] md:block -mt-1">
+                <span className="hidden text-[11px] font-semibold tracking-wider text-[#A1A1AA] md:block -mt-1 uppercase">
                   {tagline}
                 </span>
               </div>
@@ -146,13 +152,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
         </div>
-      </header>
+      </motion.header>
 
       {/* Mobile Bottom Navigation Bar */}
-      <nav
-        className="fixed bottom-0 left-0 z-40 flex h-16 w-full items-center justify-around border-t border-white/5 bg-[#08090D]/95 px-2 backdrop-blur-lg md:hidden"
-        aria-label="Mobile Navigation"
-      >
+        <nav
+          className="fixed bottom-0 left-0 z-40 flex h-16 w-full items-center justify-around border-t border-white/5 bg-[#030712]/90 px-2 backdrop-blur-xl md:hidden"
+          aria-label="Mobile Navigation"
+        >
         <button
           onClick={() => onSelectView('home')}
           className={`flex flex-col items-center justify-center p-2 ${
