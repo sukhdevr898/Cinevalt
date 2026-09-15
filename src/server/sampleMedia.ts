@@ -2,14 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { getDb, queryOne, runQuery } from './database.js';
 import { scanFolder } from './scanner.js';
-
-// Minimal valid WebM file bytes with VP8 video header (open, standard, browser-playable)
-// A compact valid WebM container representing a video loop
-const SAMPLE_WEBM_HEX = 
-  "1a45dfa39f4286810142f7810142f2810442f381084282847765626d42878102428581021853806701ffffffffffffff" +
-  "1549a966992ad7b1830f42404d808643696e65566144898840240000000000001654ae6bbfaeaa8d838101838101" +
-  "888200008686565f565038e0a0b0820280ba8201681f43b67501ffffffffffffffe781001c53bb6b90bb86b784b5" +
-  "840000a385810000803001009d012a80026801000000";
+import { SAMPLE_MP4_BASE64 } from './sampleMp4Base64.js';
 
 export async function createSampleMediaIfEmpty(): Promise<{ created: boolean; folderPath?: string; message: string }> {
   await getDb();
@@ -50,15 +43,12 @@ export async function createSampleMediaIfEmpty(): Promise<{ created: boolean; fo
     }
   ];
 
-  const headerBuffer = Buffer.from(SAMPLE_WEBM_HEX, 'hex');
+  const sampleBuffer = Buffer.from(SAMPLE_MP4_BASE64, 'base64');
 
   for (const sample of sampleFiles) {
     const targetFile = path.join(sample.dir, sample.name);
     if (!fs.existsSync(targetFile)) {
-      // Write header + pad with valid filler to simulate realistic media file
-      const padding = Buffer.alloc(Math.min(sample.size, 512 * 1024));
-      const fullBuffer = Buffer.concat([headerBuffer, padding]);
-      fs.writeFileSync(targetFile, fullBuffer);
+      fs.writeFileSync(targetFile, sampleBuffer);
     }
   }
 

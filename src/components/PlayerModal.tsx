@@ -102,7 +102,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   const streamUrl =
     video.source_type === 'youtube' || video.source_type === 'gdrive'
       ? (video.remote_url || video.absolute_path)
-      : api.getVideoStreamUrl(video.id);
+      : api.getVideoStreamUrl(video.id, video.extension);
 
   const showActionToast = (msg: string) => {
     setActionNotice(msg);
