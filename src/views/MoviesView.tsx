@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Video, SortOption, FilterOption } from '../types';
 import { MovieCard } from '../components/MovieCard';
+import { Pagination } from '../components/Pagination';
 import { formatBytes, formatDuration } from '../utils/format';
 
 interface MoviesViewProps {
@@ -172,26 +173,6 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
     const targetPage = Math.min(Math.max(1, newPage), totalPages);
     setCurrentPage(targetPage);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const getPageNumbers = () => {
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
-    const pages: (number | string)[] = [1];
-    if (safeCurrentPage > 3) {
-      pages.push('...');
-    }
-    const start = Math.max(2, safeCurrentPage - 1);
-    const end = Math.min(totalPages - 1, safeCurrentPage + 1);
-    for (let i = start; i <= end; i++) {
-      pages.push(i);
-    }
-    if (safeCurrentPage < totalPages - 2) {
-      pages.push('...');
-    }
-    pages.push(totalPages);
-    return pages;
   };
 
   return (
@@ -369,6 +350,18 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
         </div>
       </div>
 
+      {/* Top Pagination */}
+      {totalItems > 0 && (
+        <Pagination
+          currentPage={safeCurrentPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          onPageChange={handlePageChange}
+        />
+      )}
+
       {/* Media Grid or List Display */}
       {filteredVideos.length === 0 ? (
         <div className="rounded-3xl border border-white/5 bg-[#0f172a] p-12 text-center shadow-lg">
@@ -481,92 +474,16 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
         </div>
       )}
 
-      {/* Pagination Controls (20 items per page) */}
+      {/* Pagination Controls Bottom */}
       {totalItems > 0 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 rounded-2xl border border-white/10 bg-[#0f172a] px-5 py-3.5 shadow-lg">
-          <div className="text-xs text-[#A1A1AA]">
-            Showing <span className="font-bold text-white">{startIndex}–{endIndex}</span> of{' '}
-            <span className="font-bold text-white">{totalItems}</span> videos
-            {totalPages > 1 && (
-              <span className="ml-2 rounded-md bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-indigo-300">
-                Page {safeCurrentPage} of {totalPages}
-              </span>
-            )}
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center space-x-1 sm:space-x-1.5">
-              {/* First page button */}
-              {totalPages > 4 && (
-                <button
-                  onClick={() => handlePageChange(1)}
-                  disabled={safeCurrentPage === 1}
-                  className="rounded-xl p-2 text-xs font-semibold text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
-                  aria-label="First page"
-                  title="First page"
-                >
-                  <ChevronsLeft className="h-4 w-4" />
-                </button>
-              )}
-
-              {/* Previous page button */}
-              <button
-                onClick={() => handlePageChange(safeCurrentPage - 1)}
-                disabled={safeCurrentPage === 1}
-                className="flex items-center space-x-1 rounded-xl border border-white/5 bg-white/5 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none transition-all"
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Previous</span>
-              </button>
-
-              {/* Dynamic Page numbers */}
-              {getPageNumbers().map((p, idx) =>
-                p === '...' ? (
-                  <span key={`ellipsis-${idx}`} className="px-2 text-xs text-[#71717A]">
-                    ...
-                  </span>
-                ) : (
-                  <button
-                    key={p}
-                    onClick={() => handlePageChange(p as number)}
-                    className={`h-8 min-w-[32px] rounded-xl px-2 text-xs font-bold transition-all ${
-                      safeCurrentPage === p
-                        ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30'
-                        : 'text-[#A1A1AA] hover:bg-white/5 hover:text-white'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                )
-              )}
-
-              {/* Next page button */}
-              <button
-                onClick={() => handlePageChange(safeCurrentPage + 1)}
-                disabled={safeCurrentPage === totalPages}
-                className="flex items-center space-x-1 rounded-xl border border-white/5 bg-white/5 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none transition-all"
-                aria-label="Next page"
-              >
-                <span className="hidden sm:inline">Next</span>
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-
-              {/* Last page button */}
-              {totalPages > 4 && (
-                <button
-                  onClick={() => handlePageChange(totalPages)}
-                  disabled={safeCurrentPage === totalPages}
-                  className="rounded-xl p-2 text-xs font-semibold text-[#A1A1AA] hover:bg-white/5 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition-all"
-                  aria-label="Last page"
-                  title="Last page"
-                >
-                  <ChevronsRight className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <Pagination
+          currentPage={safeCurrentPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          startIndex={startIndex}
+          endIndex={endIndex}
+          onPageChange={handlePageChange}
+        />
       )}
     </div>
   );

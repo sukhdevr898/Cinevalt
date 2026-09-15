@@ -1203,7 +1203,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* TAB 7: LOGS */}
       {activeTab === 'logs' && (
         <div className="space-y-6">
-          <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8 flex flex-col min-h-[500px]">
+          <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8 flex flex-col h-[500px]">
             <div className="flex items-center justify-between border-b border-white/5 pb-4">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center space-x-2">

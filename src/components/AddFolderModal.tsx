@@ -18,7 +18,7 @@ interface AddFolderModalProps {
   onFolderAdded: () => void;
 }
 
-type TabType = 'local' | 'youtube' | 'gdrive' | 'http';
+type TabType = 'local' | 'youtube' | 'http';
 
 export const AddFolderModal: React.FC<AddFolderModalProps> = ({ onClose, onFolderAdded }) => {
   const [activeTab, setActiveTab] = useState<TabType>('local');
@@ -89,7 +89,7 @@ export const AddFolderModal: React.FC<AddFolderModalProps> = ({ onClose, onFolde
         </div>
 
         {/* Source Type Selection Tabs */}
-        <div className="grid grid-cols-4 gap-1.5 p-6 pb-2">
+        <div className="grid grid-cols-3 gap-1.5 p-6 pb-2">
           <button
             type="button"
             onClick={() => { setActiveTab('local'); setFolderPath(''); setFolderName(''); setError(null); }}
@@ -121,17 +121,6 @@ export const AddFolderModal: React.FC<AddFolderModalProps> = ({ onClose, onFolde
           >
             <Youtube className="h-4 w-4" />
             <span>YouTube</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => { setActiveTab('gdrive'); setFolderPath(''); setFolderName(''); setError(null); }}
-            className={`flex items-center justify-center space-x-1.5 rounded-xl py-2 px-1 text-xs sm:text-sm font-semibold transition-all ${
-              activeTab === 'gdrive' ? 'bg-[#0F9D58]/20 text-[#0F9D58] shadow-sm border border-emerald-500/30' : 'text-[#71717A] hover:bg-white/5 hover:text-white'
-            }`}
-          >
-            <Cloud className="h-4 w-4" />
-            <span>Drive</span>
           </button>
         </div>
 
@@ -172,9 +161,7 @@ export const AddFolderModal: React.FC<AddFolderModalProps> = ({ onClose, onFolde
                 ? 'Folder Path (Absolute or Relative)'
                 : activeTab === 'http'
                 ? 'Remote Directory URL (HTTP / HTTPS)'
-                : activeTab === 'youtube'
-                ? 'YouTube Playlist ID or URL'
-                : 'Google Drive Folder ID'}
+                : 'YouTube Playlist ID or URL'}
             </label>
             <input
               type="text"
@@ -185,9 +172,7 @@ export const AddFolderModal: React.FC<AddFolderModalProps> = ({ onClose, onFolde
                   ? 'e.g. /home/user/Movies or ./data/sample-media'
                   : activeTab === 'http'
                   ? 'e.g. https://example.com/movies/ or http://192.168.1.100:8080/'
-                  : activeTab === 'youtube'
-                  ? 'e.g. PLj...'
-                  : 'e.g. 1aBcDeF...'
+                  : 'e.g. PLj...'
               }
               className="w-full rounded-xl border border-white/10 bg-[#151720] px-4 py-3 font-mono text-sm text-white placeholder-[#474752] focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 focus:outline-none transition-all"
               required
@@ -208,9 +193,7 @@ export const AddFolderModal: React.FC<AddFolderModalProps> = ({ onClose, onFolde
                   ? 'e.g. Action Movies'
                   : activeTab === 'http'
                   ? 'e.g. Remote NAS / Cloud Cinema'
-                  : activeTab === 'youtube'
-                  ? 'e.g. YouTube Playlist'
-                  : 'e.g. Shared Drive Videos'
+                  : 'e.g. YouTube Playlist'
               }
               className="w-full rounded-xl border border-white/10 bg-[#151720] px-4 py-3 text-sm text-white placeholder-[#474752] focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 focus:outline-none transition-all"
             />
