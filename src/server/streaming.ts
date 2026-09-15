@@ -41,6 +41,74 @@ export function handleVideoStream(req: Request, res: Response): void {
     return;
   }
 
+  // Handle remote HTTP / HTTPS video streaming
+  if (video.source_type === 'http') {
+    const targetUrl = video.remote_url || video.absolute_path;
+    if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
+      res.status(400).json({
+        success: false,
+        data: null,
+        error: { code: 'INVALID_REMOTE_URL', message: 'Invalid remote URL for video.' }
+      });
+      return;
+    }
+
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CineVault/1.0'
+    };
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range;
+    }
+
+    fetch(targetUrl, {
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      headers
+    })
+      .then(async (remoteRes) => {
+        res.status(remoteRes.status);
+        const contentType = remoteRes.headers.get('content-type') || video.mime_type || 'video/mp4';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', 'Range');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+
+        const contentRange = remoteRes.headers.get('content-range');
+        if (contentRange) res.setHeader('Content-Range', contentRange);
+
+        const contentLength = remoteRes.headers.get('content-length');
+        if (contentLength) res.setHeader('Content-Length', contentLength);
+
+        if (req.method === 'HEAD' || !remoteRes.body) {
+          res.end();
+          return;
+        }
+
+        const { Readable } = await import('stream');
+        // @ts-ignore
+        const nodeStream = Readable.fromWeb(remoteRes.body);
+        nodeStream.on('error', (streamErr) => {
+          console.error('Remote HTTP stream proxy error:', streamErr);
+          if (!res.headersSent) res.status(500).end();
+        });
+        req.on('close', () => {
+          nodeStream.destroy();
+        });
+        nodeStream.pipe(res);
+      })
+      .catch((err) => {
+        console.error('Remote HTTP fetch failed:', err);
+        if (!res.headersSent) {
+          res.status(502).json({
+            success: false,
+            data: null,
+            error: { code: 'REMOTE_STREAM_ERROR', message: err.message }
+          });
+        }
+      });
+    return;
+  }
+
   // Security check: Containment verification
   // Ensure the target file is inside one of the registered folders
   const allowedFolders = queryAll<FolderRecord>('SELECT path FROM folders');

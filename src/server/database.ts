@@ -6,7 +6,7 @@ export interface FolderRecord {
   id: number;
   name: string;
   path: string;
-  folder_type: 'local' | 'youtube' | 'gdrive';
+  folder_type: 'local' | 'youtube' | 'gdrive' | 'http';
   enabled: number;
   created_at: string;
   updated_at: string;
@@ -19,7 +19,7 @@ export interface VideoRecord {
   id: number;
   folder_id: number;
   folder_name?: string;
-  source_type: 'local' | 'youtube' | 'gdrive';
+  source_type: 'local' | 'youtube' | 'gdrive' | 'http';
   remote_url: string | null;
   thumbnail_url: string | null;
   absolute_path: string;

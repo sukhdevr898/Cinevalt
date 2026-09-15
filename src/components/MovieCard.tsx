@@ -1,8 +1,9 @@
 import React from 'react';
-import { Play, Info, Heart, CheckCircle2, Film, Youtube, Cloud } from 'lucide-react';
+import { Play, Info, Heart, CheckCircle2, Film, Youtube, Cloud, Globe } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Video } from '../types';
 import { formatBytes, formatDuration, getCinematicPalette } from '../utils/format';
+import { useVideoThumbnail } from '../utils/thumbnailExtractor';
 
 interface MovieCardProps {
   video: Video;
@@ -30,16 +31,19 @@ export const MovieCard: React.FC<MovieCardProps> = ({
   const isCompleted = video.completed === 1;
   const isFavorite = video.is_favorite === 1;
   
-  const hasThumbnail = !!video.thumbnail_url;
+  const { thumbnail: autoThumbnail } = useVideoThumbnail(video);
+  const activeThumbnail = video.thumbnail_url || autoThumbnail;
+  const hasThumbnail = !!activeThumbnail;
   const isYoutube = video.source_type === 'youtube';
   const isDrive = video.source_type === 'gdrive';
+  const isHttp = video.source_type === 'http';
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: Math.min(index * 0.05, 0.4), ease: [0.25, 0.1, 0.25, 1.0] }}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#0b0f19] transition-all duration-300 hover:-translate-y-2 hover:border-white/10 hover:shadow-[0_8px_30px_rgb(0,0,0,0.5)] hover:shadow-indigo-500/10 focus-within:ring-2 focus-within:ring-indigo-500"
+      transition={{ duration: 0.4, delay: Math.min(index * 0.04, 0.3), ease: [0.25, 0.1, 0.25, 1.0] }}
+      className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/5 bg-[#0b0f19] transition-all duration-300 hover:-translate-y-1.5 hover:border-white/15 hover:shadow-[0_12px_35px_rgba(0,0,0,0.6)] hover:shadow-indigo-500/10 focus-within:ring-2 focus-within:ring-indigo-500"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter') onPlay(video);
@@ -49,33 +53,34 @@ export const MovieCard: React.FC<MovieCardProps> = ({
       <div className="relative aspect-[2/3] w-full overflow-hidden bg-[#0a0d14]">
         {hasThumbnail ? (
           <img 
-            src={video.thumbnail_url!} 
+            src={activeThumbnail!} 
             alt={video.title} 
+            loading="lazy"
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
           /* Custom Cinematic Visual Canvas */
           <div
-            className="absolute inset-0 flex flex-col justify-between p-4 transition-transform duration-500 group-hover:scale-105"
+            className="absolute inset-0 flex flex-col justify-between p-3.5 sm:p-4 transition-transform duration-500 group-hover:scale-105"
             style={{
               background: `linear-gradient(145deg, ${palette.from} 0%, ${palette.via} 50%, ${palette.to} 100%)`
             }}
           >
-            {/* Top badges (empty spacer here as real badges are moved outside for both cases) */}
-            <div className="flex items-center justify-between"></div>
+            {/* Top badges spacer */}
+            <div className="flex items-center justify-between" />
 
             {/* Center Graphic Watermark / Film Reel */}
             <div className="flex flex-1 items-center justify-center opacity-20 transition-opacity group-hover:opacity-30">
-              <Film className="h-16 w-16" style={{ color: palette.accent }} />
+              <Film className="h-12 w-12 sm:h-16 sm:w-16" style={{ color: palette.accent }} />
             </div>
 
             {/* Bottom Card Title Banner on Poster */}
             <div className="relative z-10">
-              <h4 className="line-clamp-2 text-sm font-bold leading-tight text-white drop-shadow-md">
+              <h4 className="line-clamp-2 text-xs sm:text-sm font-bold leading-snug text-white drop-shadow-md break-words">
                 {video.title}
               </h4>
-              <div className="mt-1 flex items-center justify-between text-[11px] text-white/70">
-                <span>{video.folder_name}</span>
+              <div className="mt-1 flex items-center justify-between text-[10px] sm:text-[11px] text-white/70">
+                <span className="truncate max-w-[65%]">{video.folder_name}</span>
                 <span>{formatBytes(video.size_bytes)}</span>
               </div>
             </div>
@@ -83,23 +88,23 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         )}
 
         {/* Unified Top badges for both views */}
-        <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-3 z-10 bg-gradient-to-b from-black/60 to-transparent">
+        <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-2.5 sm:p-3 z-10 bg-gradient-to-b from-black/70 to-transparent">
           <span
-            className="rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider uppercase backdrop-blur-sm border border-white/10"
+            className="rounded px-1.5 py-0.5 text-[9px] sm:text-[10px] font-bold tracking-wider uppercase backdrop-blur-md border border-white/10"
             style={!hasThumbnail ? {
               backgroundColor: `${palette.accent}20`,
               color: palette.accent
             } : {
-              backgroundColor: 'rgba(255,255,255,0.1)',
+              backgroundColor: 'rgba(255,255,255,0.15)',
               color: 'white'
             }}
           >
-            {isYoutube ? 'YT' : isDrive ? 'GD' : palette.genre}
+            {isYoutube ? 'YT' : isDrive ? 'GD' : isHttp ? 'WEB' : palette.genre}
           </span>
 
-          <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white/90 uppercase tracking-wider backdrop-blur-sm flex items-center space-x-1 border border-white/10">
-            {isYoutube ? <Youtube className="h-3 w-3 text-red-500" /> : isDrive ? <Cloud className="h-3 w-3 text-green-500" /> : null}
-            <span>{isYoutube ? 'WEB' : isDrive ? 'DRV' : video.extension.replace('.', '')}</span>
+          <span className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] sm:text-[10px] font-semibold text-white/90 uppercase tracking-wider backdrop-blur-md flex items-center space-x-1 border border-white/10">
+            {isYoutube ? <Youtube className="h-3 w-3 text-red-500" /> : isDrive ? <Cloud className="h-3 w-3 text-emerald-400" /> : isHttp ? <Globe className="h-3 w-3 text-indigo-400" /> : null}
+            <span>{isYoutube ? 'WEB' : isDrive ? 'DRV' : isHttp ? 'INDEX' : video.extension.replace('.', '')}</span>
           </span>
         </div>
 
@@ -107,10 +112,10 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 opacity-0 backdrop-blur-[4px] transition-all duration-300 group-hover:opacity-100 group-focus-within:opacity-100 z-20">
           <button
             onClick={() => onPlay(video)}
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-black shadow-2xl transition-transform duration-300 hover:scale-110 hover:bg-indigo-500 hover:text-white active:scale-95"
+            className="flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-full bg-white text-black shadow-2xl transition-transform duration-300 hover:scale-110 hover:bg-indigo-500 hover:text-white active:scale-95"
             aria-label={`Play ${video.title}`}
           >
-            <Play className="h-6 w-6 fill-current translate-x-0.5" />
+            <Play className="h-5 w-5 sm:h-6 sm:w-6 fill-current translate-x-0.5" />
           </button>
 
           <div className="absolute top-3 right-3 flex space-x-2">
@@ -143,12 +148,12 @@ export const MovieCard: React.FC<MovieCardProps> = ({
 
         {/* Watched / Progress Indicators */}
         {isCompleted ? (
-          <div className="absolute bottom-2 left-2 z-10 flex items-center space-x-1.5 rounded-md bg-[#22C55E]/90 px-2 py-1 text-[10px] font-bold tracking-wide text-white backdrop-blur-md shadow-lg border border-[#22C55E]/20">
-            <CheckCircle2 className="h-3.5 w-3.5" />
+          <div className="absolute bottom-2 left-2 z-10 flex items-center space-x-1.5 rounded-md bg-[#22C55E]/90 px-2 py-0.5 sm:py-1 text-[9px] sm:text-[10px] font-bold tracking-wide text-white backdrop-blur-md shadow-lg border border-[#22C55E]/20">
+            <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
             <span>WATCHED</span>
           </div>
         ) : watchedPercent > 0 ? (
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10 z-10">
+          <div className="absolute bottom-0 left-0 right-0 h-1 sm:h-1.5 bg-white/10 z-10">
             <div
               className="h-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.8)] transition-all"
               style={{ width: `${watchedPercent}%` }}
@@ -157,26 +162,28 @@ export const MovieCard: React.FC<MovieCardProps> = ({
         ) : null}
       </div>
 
-      {/* Card Info Below Poster */}
-      <div className={`flex flex-1 flex-col justify-between ${density === 'compact' ? 'p-2.5' : 'p-3'}`}>
-        <div>
+      {/* Card Info Below Poster - Auto Adjusting Responsively */}
+      <div className={`flex flex-1 flex-col justify-between ${density === 'compact' ? 'p-2 sm:p-2.5' : 'p-3 sm:p-3.5'}`}>
+        <div className="min-w-0">
           <h3
             onClick={() => onOpenDetails(video)}
-            className="cursor-pointer truncate text-sm font-semibold text-[#F8FAFC] transition-colors hover:text-[#E50914]"
+            className="cursor-pointer text-xs sm:text-sm font-semibold text-[#F8FAFC] transition-colors hover:text-indigo-400 line-clamp-2 leading-snug break-words tracking-tight min-h-[2rem] sm:min-h-[2.5rem]"
             title={video.title}
           >
             {video.title}
           </h3>
-          <p className="mt-0.5 truncate text-xs text-[#71717A]">
-            {video.folder_name} • {(video.source_type || 'local').toUpperCase()}
+          <p className="mt-1 truncate text-[10px] sm:text-xs text-[#71717A] flex items-center space-x-1.5">
+            <span className="truncate max-w-[70%]">{video.folder_name}</span>
+            <span className="text-[#3F3F46]">•</span>
+            <span className="uppercase text-[9px] sm:text-[10px] font-bold text-[#A1A1AA]">{video.source_type || 'LOCAL'}</span>
           </p>
         </div>
 
-        <div className="mt-3 flex items-center justify-between text-[11px] font-semibold tracking-wide text-[#A1A1AA]">
+        <div className="mt-2.5 sm:mt-3 flex items-center justify-between text-[10px] sm:text-[11px] font-semibold tracking-wide text-[#A1A1AA]">
           <span>{formatDuration(video.duration_seconds || 0)}</span>
           <button
             onClick={() => onPlay(video)}
-            className="text-indigo-400 hover:text-indigo-300 transition-colors"
+            className="text-indigo-400 hover:text-indigo-300 font-bold transition-colors"
           >
             {watchedPercent > 0 && !isCompleted ? 'Resume' : 'Play'}
           </button>
@@ -185,3 +192,4 @@ export const MovieCard: React.FC<MovieCardProps> = ({
     </motion.div>
   );
 };
+

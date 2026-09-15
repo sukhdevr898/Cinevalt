@@ -3,6 +3,7 @@ import path from 'path';
 import { getDb, queryAll, queryOne, runQuery, FolderRecord, VideoRecord } from './database.js';
 import { isSupportedVideo, getMimeType, deriveTitleFromFilename } from './mimeTypes.js';
 import { scanYouTubePlaylist, scanDriveFolder } from './cloudScanner.js';
+import { scanHttpDirectory } from './httpScanner.js';
 
 export interface ScanStats {
   folderId?: number;
@@ -77,6 +78,17 @@ export async function scanFolder(folderId: number): Promise<ScanStats> {
       stats.newVideos = driveStats.newVideos;
       stats.updatedVideos = driveStats.updatedVideos;
       stats.videosFound = driveStats.videosFound;
+      isScanning = false;
+      currentScanFolderId = null;
+      stats.scanDurationMs = Date.now() - startTime;
+      return stats;
+    } else if (folder.folder_type === 'http') {
+      runQuery("UPDATE folders SET scan_status = 'scanning', updated_at = ? WHERE id = ?", [new Date().toISOString(), folderId]);
+      const httpStats = await scanHttpDirectory(folderId, folder.path);
+      stats.newVideos = httpStats.newVideos;
+      stats.updatedVideos = httpStats.updatedVideos;
+      stats.removedVideos = httpStats.removedVideos;
+      stats.videosFound = httpStats.videosFound;
       isScanning = false;
       currentScanFolderId = null;
       stats.scanDurationMs = Date.now() - startTime;

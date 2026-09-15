@@ -171,13 +171,27 @@ export default function App() {
     return videos.filter((v) => v.is_favorite === 1);
   }, [videos]);
 
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'remote' | 'profile' | 'folders' | 'playback' | 'system'>('remote');
+
+  const handleSelectView = (view: ViewType, subTab?: string) => {
+    if (view === 'settings' && subTab) {
+      setSettingsInitialTab(subTab as any);
+    }
+    setCurrentView(view);
+  };
+
+  const handleNavigateToRemote = () => {
+    setSettingsInitialTab('remote');
+    setCurrentView('settings');
+  };
+
   return (
     <div className="min-h-screen bg-[#030712] text-[#F8FAFC] flex flex-col font-['Plus_Jakarta_Sans',sans-serif] selection:bg-indigo-500/30 selection:text-indigo-200">
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/10 via-[#030712] to-[#030712] pointer-events-none -z-10" />
       {/* Navbar */}
       <Navbar
         currentView={currentView}
-        onSelectView={setCurrentView}
+        onSelectView={handleSelectView}
         onOpenAddFolder={() => setIsAddFolderOpen(true)}
         onScanLibrary={handleScanLibrary}
         isScanning={isScanning}
@@ -223,6 +237,7 @@ export default function App() {
                 onOpenAddFolder={() => setIsAddFolderOpen(true)}
                 onCreateSampleMedia={() => handleCreateSampleMedia(false)}
                 isCreatingSample={isCreatingSample}
+                onNavigateToRemote={handleNavigateToRemote}
               />
             )}
 
@@ -262,6 +277,7 @@ export default function App() {
                 isCreatingSample={isCreatingSample}
                 systemInfo={systemInfo}
                 stats={stats}
+                initialTab={settingsInitialTab}
                 onLibraryScanned={(res) => {
                   showToast(
                     `Scanned: Found ${res.videosFound} videos (${res.newVideos} new, ${res.updatedVideos} updated)`,

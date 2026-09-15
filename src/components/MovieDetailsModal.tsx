@@ -19,6 +19,7 @@ import {
 import { motion } from 'motion/react';
 import { Video } from '../types';
 import { formatBytes, formatDuration, formatDate, getCinematicPalette } from '../utils/format';
+import { useVideoThumbnail } from '../utils/thumbnailExtractor';
 
 interface MovieDetailsModalProps {
   video: Video;
@@ -42,33 +43,76 @@ export const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
   const isFavorite = video.is_favorite === 1;
   const isCompleted = video.completed === 1;
   
-  const hasThumbnail = !!video.thumbnail_url;
+  const { thumbnail: autoThumbnail } = useVideoThumbnail(video);
+  const activeThumbnail = video.thumbnail_url || autoThumbnail;
+  const hasThumbnail = !!activeThumbnail;
   const isYoutube = video.source_type === 'youtube';
   const isDrive = video.source_type === 'gdrive';
+  const isHttp = video.source_type === 'http';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-hidden">
+      {/* Dynamic Ambient Fullscreen Backdrop (Blurred, low-opacity movie thumbnail) */}
+      <div className="absolute inset-0 -z-10 overflow-hidden bg-[#030712]/90 backdrop-blur-md">
+        {hasThumbnail ? (
+          <>
+            <img
+              src={activeThumbnail!}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover blur-3xl scale-125 opacity-25 brightness-75 transition-opacity duration-700 pointer-events-none"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#030712] via-[#030712]/80 to-[#030712]/60 pointer-events-none" />
+          </>
+        ) : (
+          <div
+            className="absolute inset-0 opacity-20 blur-3xl pointer-events-none"
+            style={{
+              background: `radial-gradient(circle at center, ${palette.accent} 0%, transparent 70%)`
+            }}
+          />
+        )}
+      </div>
+
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        initial={{ opacity: 0, scale: 0.96, y: 14 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        transition={{ duration: 0.3 }}
-        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#060b17] shadow-[0_20px_50px_-10px_rgba(0,0,0,0.8)]"
+        exit={{ opacity: 0, scale: 0.96, y: 14 }}
+        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+        className="relative flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] border border-white/15 bg-[#060b17]/95 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.9)] backdrop-blur-2xl"
       >
-        {/* Header Backdrop */}
+        {/* Modal-Internal Dynamic Backdrop Layer */}
+        {hasThumbnail && (
+          <div className="absolute inset-0 pointer-events-none -z-10 overflow-hidden">
+            <img
+              src={activeThumbnail!}
+              alt=""
+              className="h-full w-full object-cover blur-2xl scale-110 opacity-15 brightness-90 transition-opacity duration-500"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#060b17]/85 to-[#060b17]" />
+          </div>
+        )}
+
+        {/* Header Hero Backdrop */}
         <div
-          className="relative min-h-[220px] sm:min-h-[300px] w-full p-6 flex flex-col justify-between overflow-hidden"
+          className="relative min-h-[220px] sm:min-h-[300px] w-full p-6 sm:p-8 flex flex-col justify-between overflow-hidden border-b border-white/10"
         >
           {hasThumbnail ? (
-            <div className="absolute inset-0">
-               <img src={video.thumbnail_url!} alt="" className="w-full h-full object-cover opacity-50 mix-blend-screen scale-105" />
-               <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D14] via-[#0B0D14]/70 to-[#0B0D14]/10" />
+            <div className="absolute inset-0 -z-10">
+              <img
+                src={activeThumbnail!}
+                alt=""
+                className="w-full h-full object-cover opacity-60 scale-105 transition-transform duration-700"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#060b17] via-[#060b17]/60 to-black/40" />
             </div>
           ) : (
-            <div className="absolute inset-0 opacity-80" style={{
-              background: `linear-gradient(135deg, ${palette.from} 0%, ${palette.via} 60%, #0B0D14 100%)`
-            }}>
-               <div className="absolute inset-0 bg-gradient-to-t from-[#0B0D14] to-transparent" />
+            <div
+              className="absolute inset-0 opacity-80 -z-10"
+              style={{
+                background: `linear-gradient(135deg, ${palette.from} 0%, ${palette.via} 60%, #060b17 100%)`
+              }}
+            >
+              <div className="absolute inset-0 bg-gradient-to-t from-[#060b17] to-transparent" />
             </div>
           )}
 
@@ -76,32 +120,37 @@ export const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
           <div className="relative z-10 flex justify-end">
             <button
               onClick={onClose}
-              className="rounded-full bg-black/50 p-2 text-white/80 backdrop-blur-md transition-colors hover:bg-black/80 hover:text-white"
+              className="rounded-full bg-black/60 p-2.5 text-white/80 backdrop-blur-xl border border-white/10 transition-all hover:bg-black/90 hover:text-white hover:scale-105 active:scale-95"
               aria-label="Close modal"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Watermark & Badges */}
-          <div className="relative z-10 flex items-end justify-between">
-            <div>
-              <span
-                className="rounded-lg px-3 py-1 text-xs font-bold uppercase tracking-widest backdrop-blur-md border border-white/10 shadow-sm"
-                style={!hasThumbnail ? { backgroundColor: `${palette.accent}25`, color: palette.accent } : { backgroundColor: 'rgba(255,255,255,0.1)', color: 'white' }}
-              >
-                {isYoutube ? 'YouTube' : isDrive ? 'Google Drive' : palette.genre}
-              </span>
-              <h2 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight text-white drop-shadow-xl font-['Outfit']">
+          {/* Watermark & Badges & Title */}
+          <div className="relative z-10 flex items-end justify-between gap-4">
+            <div className="max-w-xl">
+              <div className="flex items-center space-x-2">
+                <span
+                  className="rounded-lg px-3 py-1 text-xs font-bold uppercase tracking-widest backdrop-blur-md border border-white/10 shadow-sm"
+                  style={!hasThumbnail ? { backgroundColor: `${palette.accent}25`, color: palette.accent } : { backgroundColor: 'rgba(255,255,255,0.15)', color: 'white' }}
+                >
+                  {isYoutube ? 'YouTube' : isDrive ? 'Google Drive' : palette.genre}
+                </span>
+                <span className="rounded-lg bg-black/50 px-2.5 py-1 text-xs font-semibold text-white/90 uppercase tracking-wider backdrop-blur-md border border-white/10">
+                  {video.extension.replace('.', '')}
+                </span>
+              </div>
+              <h2 className="mt-3 text-xl sm:text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-tight text-white drop-shadow-xl font-['Outfit'] break-words leading-snug">
                 {video.title}
               </h2>
             </div>
-            {!hasThumbnail && <Film className="h-16 w-16 opacity-15 text-white absolute -bottom-4 -right-4" />}
+            {!hasThumbnail && <Film className="h-20 w-20 opacity-15 text-white shrink-0 hidden sm:block" />}
           </div>
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-6">
           {/* Primary Action Buttons */}
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -158,13 +207,13 @@ export const MovieDetailsModal: React.FC<MovieDetailsModalProps> = ({
             </div>
 
             <div className="flex items-center space-x-3.5 rounded-2xl border border-white/5 bg-white/5 p-4">
-              {isYoutube ? <Youtube className="h-5 w-5 text-[#A1A1AA]" /> : isDrive ? <Cloud className="h-5 w-5 text-[#A1A1AA]" /> : <FileVideo className="h-5 w-5 text-[#A1A1AA]" />}
+              {isYoutube ? <Youtube className="h-5 w-5 text-[#A1A1AA]" /> : isDrive ? <Cloud className="h-5 w-5 text-[#A1A1AA]" /> : isHttp ? <Globe className="h-5 w-5 text-indigo-400" /> : <FileVideo className="h-5 w-5 text-[#A1A1AA]" />}
               <div className="overflow-hidden">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-[#71717A]">
                   Format & Source
                 </span>
                 <p className="truncate text-sm font-semibold text-white mt-0.5">
-                  {video.extension.replace('.', '').toUpperCase()} {isYoutube || isDrive ? '(Cloud)' : `(${video.mime_type})`}
+                  {video.extension.replace('.', '').toUpperCase()} {isYoutube ? '(YouTube)' : isDrive ? '(Google Drive)' : isHttp ? '(Remote Web Index)' : `(${video.mime_type})`}
                 </p>
               </div>
             </div>

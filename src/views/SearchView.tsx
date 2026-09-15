@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search as SearchIcon, X, Film, Sparkles } from 'lucide-react';
+import { Search as SearchIcon, X, Film, Sparkles, Filter, Heart, Clock, CheckCircle } from 'lucide-react';
 import { Video } from '../types';
 import { MovieCard } from '../components/MovieCard';
 import { api } from '../services/api';
@@ -9,6 +9,16 @@ interface SearchViewProps {
   onOpenDetails: (video: Video) => void;
   onToggleFavorite: (video: Video, e?: React.MouseEvent) => void;
 }
+
+const QUICK_TAGS = [
+  { label: 'Favorites', query: 'favorite' },
+  { label: 'Unwatched', query: 'unwatched' },
+  { label: 'MP4 Videos', query: '.mp4' },
+  { label: 'MKV Movies', query: '.mkv' },
+  { label: 'Action', query: 'action' },
+  { label: 'Trailer', query: 'trailer' },
+  { label: 'Sample', query: 'sample' },
+];
 
 export const SearchView: React.FC<SearchViewProps> = ({
   onPlay,
@@ -38,47 +48,78 @@ export const SearchView: React.FC<SearchViewProps> = ({
       } finally {
         setIsSearching(false);
       }
-    }, 250);
+    }, 200);
 
     return () => clearTimeout(timer);
   }, [query]);
 
   return (
-    <div className="space-y-6 pb-16">
-      {/* Search Header Bar */}
-      <div className="relative mx-auto max-w-3xl">
+    <div className="space-y-8 pb-16">
+      {/* Search Header Hero Bar */}
+      <div className="relative mx-auto max-w-3xl space-y-4 text-center">
+        <div className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-['Outfit']">
+            Search Local Cinema Library
+          </h1>
+          <p className="text-xs sm:text-sm text-[#A1A1AA]">
+            Instant lookup across video titles, folder names, release tags, and file extensions
+          </p>
+        </div>
+
+        {/* Input Bar */}
         <div className="relative flex items-center">
-          <SearchIcon className="absolute left-4 h-5 w-5 text-[#71717A]" />
+          <SearchIcon className="absolute left-4 h-5 w-5 text-indigo-400" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search movies by title, original filename, folder, or format..."
-            className="w-full rounded-2xl border border-white/10 bg-[#11131A] py-4 pl-12 pr-12 text-base sm:text-lg text-white placeholder-[#71717A] shadow-xl focus:border-[#E50914] focus:outline-none focus:ring-2 focus:ring-[#E50914]/20"
+            placeholder="Search by movie name, folder, .mp4, .mkv..."
+            className="w-full rounded-2xl border border-white/10 bg-[#0f172a] py-4 pl-12 pr-12 text-sm sm:text-base text-white placeholder-[#71717A] shadow-2xl focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
             autoFocus
           />
           {query && (
             <button
               onClick={() => setQuery('')}
-              className="absolute right-4 rounded-lg p-1 text-[#71717A] hover:text-white"
+              className="absolute right-4 rounded-xl p-1.5 text-[#71717A] hover:bg-white/10 hover:text-white transition-all"
               aria-label="Clear Search"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
+
+        {/* Quick Discovery Tag Chips */}
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-[#71717A] mr-1 flex items-center space-x-1">
+            <Filter className="h-3 w-3" />
+            <span>Tags:</span>
+          </span>
+          {QUICK_TAGS.map((tag) => (
+            <button
+              key={tag.label}
+              onClick={() => setQuery(tag.query)}
+              className={`rounded-xl border px-3 py-1 text-xs font-semibold transition-all ${
+                query.toLowerCase() === tag.query.toLowerCase()
+                  ? 'border-indigo-500 bg-indigo-500 text-white shadow-sm'
+                  : 'border-white/10 bg-[#0f172a] text-[#A1A1AA] hover:border-white/20 hover:text-white'
+              }`}
+            >
+              {tag.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Results Header */}
+      {/* Results Meta Header */}
       {hasSearched && (
         <div className="flex items-center justify-between border-b border-white/5 pb-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA]">
-            {results.length} {results.length === 1 ? 'movie' : 'movies'} found for "{query}"
+            {results.length} {results.length === 1 ? 'title' : 'titles'} found for "{query}"
           </p>
           {isSearching && (
-            <div className="flex items-center space-x-2 text-xs text-[#E50914]">
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#E50914] border-t-transparent" />
-              <span>Searching...</span>
+            <div className="flex items-center space-x-2 text-xs text-indigo-400">
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+              <span>Searching vault...</span>
             </div>
           )}
         </div>
@@ -86,21 +127,21 @@ export const SearchView: React.FC<SearchViewProps> = ({
 
       {/* Results or Initial Prompt */}
       {!hasSearched && !query ? (
-        <div className="py-20 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#11131A] text-[#71717A]">
+        <div className="py-16 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
             <SearchIcon className="h-8 w-8" />
           </div>
-          <h3 className="mt-4 text-base font-bold text-white">Search Your Local Library</h3>
-          <p className="mt-1 text-xs text-[#71717A]">
-            Find titles, clean release names, specific video extensions, and folders.
+          <h3 className="mt-4 text-base font-bold text-white font-['Outfit']">Ready to Search</h3>
+          <p className="mt-1 text-xs text-[#71717A] max-w-sm mx-auto">
+            Type any keyword above or click a tag chip like <strong>.mp4</strong> or <strong>Favorites</strong> to discover titles.
           </p>
         </div>
       ) : results.length === 0 && hasSearched ? (
-        <div className="rounded-2xl border border-white/5 bg-[#11131A] p-12 text-center">
+        <div className="rounded-3xl border border-white/5 bg-[#0f172a] p-12 text-center">
           <Film className="mx-auto h-10 w-10 text-[#71717A]" />
-          <h3 className="mt-3 text-base font-bold text-white">No Movies Found</h3>
-          <p className="mt-1 text-xs text-[#71717A]">
-            We couldn't find any media matching "{query}". Try checking for typos or searching by extension like .mp4.
+          <h3 className="mt-3 text-base font-bold text-white font-['Outfit']">No Matching Titles</h3>
+          <p className="mt-1 text-xs text-[#71717A] max-w-md mx-auto">
+            We couldn't find any indexed media matching "{query}". Check spelling, or try searching by extension like <code>.mp4</code>.
           </p>
         </div>
       ) : (

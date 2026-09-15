@@ -3,7 +3,7 @@ export interface Video {
   folder_id: number;
   folder_name: string;
   folder_path?: string;
-  source_type?: 'local' | 'youtube' | 'gdrive';
+  source_type?: 'local' | 'youtube' | 'gdrive' | 'http';
   remote_url?: string | null;
   thumbnail_url?: string | null;
   absolute_path: string;
@@ -34,7 +34,7 @@ export interface Folder {
   id: number;
   name: string;
   path: string;
-  folder_type?: 'local' | 'youtube' | 'gdrive';
+  folder_type?: 'local' | 'youtube' | 'gdrive' | 'http';
   enabled: number;
   created_at: string;
   updated_at: string;

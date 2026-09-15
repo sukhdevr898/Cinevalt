@@ -108,6 +108,15 @@ export function createApiRouter(): Router {
         } catch {
           return sendError(res, 'PERMISSION_DENIED', `Permission denied reading folder: "${resolvedPath}"`);
         }
+      } else if (folder_type === 'http') {
+        if (!/^https?:\/\//i.test(trimmedPath)) {
+          resolvedPath = `http://${trimmedPath}`;
+        }
+        try {
+          new URL(resolvedPath);
+        } catch {
+          return sendError(res, 'INVALID_URL', `Specified URL is not valid: "${folderPath}"`);
+        }
       }
 
       await getDb();
@@ -119,6 +128,15 @@ export function createApiRouter(): Router {
       let defaultName = resolvedPath;
       if (folder_type === 'youtube') defaultName = 'YouTube Playlist';
       if (folder_type === 'gdrive') defaultName = 'Google Drive Folder';
+      if (folder_type === 'http') {
+        try {
+          const u = new URL(resolvedPath);
+          const cleanPath = u.pathname.split('/').filter(Boolean).pop();
+          defaultName = cleanPath ? decodeURIComponent(cleanPath) : u.hostname;
+        } catch {
+          defaultName = 'Remote Web Directory';
+        }
+      }
       
       const folderName = (name && typeof name === 'string' && name.trim()) 
         ? name.trim() 
