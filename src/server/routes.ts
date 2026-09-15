@@ -30,7 +30,21 @@ export function createApiRouter(): Router {
 
   // --- HEALTH & SYSTEM ---
   router.get('/health', async (_req: Request, res: Response) => {
-    sendSuccess(res, { status: 'healthy', timestamp: new Date().toISOString() });
+    try {
+      await getDb();
+      sendSuccess(res, {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptimeSeconds: Math.floor(process.uptime()),
+        database: 'connected',
+        streamingEngine: 'active',
+        nodeVersion: process.version,
+        freeMemBytes: os.freemem(),
+        totalMemBytes: os.totalmem()
+      });
+    } catch (err: any) {
+      sendError(res, 'HEALTH_ERROR', err.message, 500);
+    }
   });
 
   router.get('/system/info', async (_req: Request, res: Response) => {

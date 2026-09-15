@@ -171,7 +171,7 @@ export default function App() {
     return videos.filter((v) => v.is_favorite === 1);
   }, [videos]);
 
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'remote' | 'profile' | 'folders' | 'playback' | 'system'>('remote');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string>('health');
 
   const handleSelectView = (view: ViewType, subTab?: string) => {
     if (view === 'settings' && subTab) {

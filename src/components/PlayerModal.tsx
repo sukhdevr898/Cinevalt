@@ -290,8 +290,17 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   // Speed change
   const handleSpeedChange = (speed: number) => {
     setPlaybackSpeed(speed);
+    localStorage.setItem('cinevault_speed', String(speed));
     setShowSpeedMenu(false);
-    showActionToast(`Speed ${speed}x`);
+    const media = getMediaElement();
+    if (media && typeof media === 'object' && 'playbackRate' in media) {
+      try {
+        (media as HTMLVideoElement).playbackRate = speed;
+      } catch {
+        // ignore
+      }
+    }
+    showActionToast(speed === 1 ? 'Speed 1x (Normal)' : `Speed ${speed}x`);
   };
 
   // Seekbar mouse events for hover preview
@@ -576,6 +585,14 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
             userPausedRef.current = false;
             setIsPlaying(true);
             setIsLoading(false);
+            const media = getMediaElement();
+            if (media && typeof media === 'object' && 'playbackRate' in media) {
+              try {
+                (media as HTMLVideoElement).playbackRate = playbackSpeed;
+              } catch {
+                // ignore
+              }
+            }
           }}
           onPause={() => {
             // Only update isPlaying if user explicitly paused or via PiP mode
@@ -709,7 +726,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
       {/* Bottom Control Bar */}
       <div
-        className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-3 sm:px-6 pb-4 sm:pb-6 pt-12 transition-all duration-300 w-full max-w-full overflow-hidden ${
+        className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-3 sm:px-6 pb-4 sm:pb-6 pt-12 transition-all duration-300 w-full max-w-full overflow-visible ${
           showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
         }`}
       >
@@ -871,32 +888,62 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
             <div className="relative shrink-0">
               <button
                 onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                className="rounded-xl border border-white/10 bg-black/40 px-2 py-1 sm:px-2.5 sm:py-1.5 text-[11px] sm:text-xs font-bold text-white/90 hover:bg-white/10 transition-all shrink-0"
+                className={`rounded-xl border px-2 py-1 sm:px-2.5 sm:py-1.5 text-[11px] sm:text-xs font-bold transition-all shrink-0 ${
+                  playbackSpeed !== 1
+                    ? 'border-indigo-500/50 bg-indigo-600/30 text-indigo-200 shadow-sm'
+                    : 'border-white/10 bg-black/40 text-white/90 hover:bg-white/10'
+                }`}
                 aria-label="Playback Speed"
+                title="Playback Speed"
               >
                 {playbackSpeed}x
               </button>
 
               {showSpeedMenu && (
-                <div className="absolute bottom-12 right-0 z-40 flex flex-col rounded-2xl border border-white/10 bg-[#0f172a] p-1.5 shadow-2xl backdrop-blur-xl min-w-[100px]">
-                  <span className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#71717A]">
-                    Speed
-                  </span>
-                  {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => handleSpeedChange(s)}
-                      className={`flex items-center justify-between rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
-                        playbackSpeed === s
-                          ? 'bg-indigo-500 text-white'
-                          : 'text-[#A1A1AA] hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      <span>{s}x</span>
-                      {playbackSpeed === s && <Check className="h-3.5 w-3.5" />}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowSpeedMenu(false)}
+                  />
+                  <div className="absolute bottom-full mb-2.5 right-0 z-50 flex flex-col rounded-2xl border border-white/15 bg-[#0b0f19]/95 p-1.5 shadow-2xl backdrop-blur-2xl min-w-[130px] max-h-72 overflow-y-auto">
+                    <div className="px-2.5 py-1 mb-1 border-b border-white/10 flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#71717A]">
+                        Speed
+                      </span>
+                      {playbackSpeed !== 1 && (
+                        <button
+                          onClick={() => handleSpeedChange(1)}
+                          className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold"
+                        >
+                          Reset 1x
+                        </button>
+                      )}
+                    </div>
+                    {[
+                      { s: 0.25, label: '0.25x' },
+                      { s: 0.5, label: '0.5x' },
+                      { s: 0.75, label: '0.75x' },
+                      { s: 1, label: '1x (Normal)' },
+                      { s: 1.25, label: '1.25x' },
+                      { s: 1.5, label: '1.5x' },
+                      { s: 1.75, label: '1.75x' },
+                      { s: 2, label: '2x' }
+                    ].map(({ s, label }) => (
+                      <button
+                        key={s}
+                        onClick={() => handleSpeedChange(s)}
+                        className={`flex items-center justify-between rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-all ${
+                          playbackSpeed === s
+                            ? 'bg-indigo-500 text-white font-bold shadow-sm shadow-indigo-500/30'
+                            : 'text-[#A1A1AA] hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        <span>{label}</span>
+                        {playbackSpeed === s && <Check className="h-3.5 w-3.5 ml-2 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
 

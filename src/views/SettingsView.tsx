@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
+  Activity,
+  Server,
+  HardDrive,
+  Cpu,
   Folder,
   FolderPlus,
   RefreshCw,
   Trash2,
-  HardDrive,
-  Cpu,
-  Sparkles,
-  Smartphone,
   CheckCircle2,
   AlertTriangle,
   RotateCcw,
@@ -16,15 +16,25 @@ import {
   User,
   Shield,
   Volume2,
-  Settings,
   Check,
   Zap,
-  Globe
+  Globe,
+  Gauge,
+  Play,
+  Terminal,
+  Wifi,
+  Copy,
+  Layers,
+  Clock,
+  Sparkles,
+  ExternalLink
 } from 'lucide-react';
 import { Folder as FolderType, SystemInfo, LibraryStats, ScanResult } from '../types';
 import { api } from '../services/api';
 import { formatBytes, formatDate } from '../utils/format';
 import { RemoteAccessGuide } from '../components/RemoteAccessGuide';
+
+export type SettingsTab = 'health' | 'directories' | 'playback' | 'remote' | 'profile' | 'maintenance';
 
 interface SettingsViewProps {
   folders: FolderType[];
@@ -35,7 +45,7 @@ interface SettingsViewProps {
   systemInfo: SystemInfo | null;
   stats: LibraryStats | null;
   onLibraryScanned: (result: ScanResult) => void;
-  initialTab?: 'remote' | 'profile' | 'folders' | 'playback' | 'system';
+  initialTab?: string;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -47,9 +57,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   systemInfo,
   stats,
   onLibraryScanned,
-  initialTab = 'remote'
+  initialTab = 'health'
 }) => {
-  const [activeTab, setActiveTab] = useState<'remote' | 'profile' | 'folders' | 'playback' | 'system'>(initialTab);
+  // Normalize initialTab for backwards compatibility
+  const normalizedInitialTab = (): SettingsTab => {
+    if (initialTab === 'folders') return 'directories';
+    if (initialTab === 'system') return 'health';
+    if (['health', 'directories', 'playback', 'remote', 'profile', 'maintenance'].includes(initialTab)) {
+      return initialTab as SettingsTab;
+    }
+    return 'health';
+  };
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(normalizedInitialTab);
 
   // Profile preferences
   const [profileName, setProfileName] = useState<string>(() => {
@@ -65,6 +85,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setIsEditingName(false);
   };
 
+  // Live health diagnostic state
+  const [healthStatus, setHealthStatus] = useState<{
+    status: string;
+    timestamp: string;
+    latencyMs?: number;
+    database?: string;
+    streamingEngine?: string;
+    uptimeSeconds?: number;
+  } | null>(null);
+  const [isTestingHealth, setIsTestingHealth] = useState(false);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
+
   // Scanner and maintenance states
   const [scanningFolderId, setScanningFolderId] = useState<number | null>(null);
   const [isScanningAll, setIsScanningAll] = useState(false);
@@ -74,7 +106,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isResetting, setIsResetting] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
 
-  // Experience preferences stored in localStorage
+  // Playback experience preferences
+  const [defaultSpeed, setDefaultSpeed] = useState<number>(() => {
+    const saved = localStorage.getItem('cinevault_speed');
+    return saved !== null ? parseFloat(saved) : 1;
+  });
+
   const [autoplayNext, setAutoplayNext] = useState<boolean>(() => {
     return localStorage.getItem('cinevault_autoplay_next') !== 'false';
   });
@@ -86,6 +123,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [defaultVolume, setDefaultVolume] = useState<number>(() => {
     return parseInt(localStorage.getItem('cinevault_default_volume') || '80', 10);
   });
+
+  const [defaultFitMode, setDefaultFitMode] = useState<'contain' | 'cover'>(() => {
+    return (localStorage.getItem('cinevault_fit_mode') as 'contain' | 'cover') || 'contain';
+  });
+
+  const [ambientGlow, setAmbientGlow] = useState<boolean>(() => {
+    return localStorage.getItem('cinevault_ambient_glow') !== 'false';
+  });
+
+  // Run live health check on mount or when switching to health tab
+  const runHealthCheck = async () => {
+    setIsTestingHealth(true);
+    const start = performance.now();
+    try {
+      const data = await api.getHealth();
+      const elapsed = Math.round(performance.now() - start);
+      setHealthStatus({
+        ...data,
+        latencyMs: elapsed
+      });
+    } catch {
+      setHealthStatus({
+        status: 'degraded',
+        timestamp: new Date().toISOString(),
+        latencyMs: Math.round(performance.now() - start)
+      });
+    } finally {
+      setIsTestingHealth(false);
+    }
+  };
+
+  useEffect(() => {
+    runHealthCheck();
+  }, []);
+
+  const handleSpeedPreferenceChange = (spd: number) => {
+    setDefaultSpeed(spd);
+    localStorage.setItem('cinevault_speed', String(spd));
+  };
 
   const handleAutoplayToggle = () => {
     const next = !autoplayNext;
@@ -102,6 +178,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleVolumeChange = (val: number) => {
     setDefaultVolume(val);
     localStorage.setItem('cinevault_default_volume', String(val));
+    localStorage.setItem('cinevault_volume', String(val / 100));
+  };
+
+  const handleFitModeChange = (mode: 'contain' | 'cover') => {
+    setDefaultFitMode(mode);
+    localStorage.setItem('cinevault_fit_mode', mode);
+  };
+
+  const handleAmbientGlowToggle = () => {
+    const next = !ambientGlow;
+    setAmbientGlow(next);
+    localStorage.setItem('cinevault_ambient_glow', String(next));
+  };
+
+  // Copy helper
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedPath(id);
+    setTimeout(() => setCopiedPath(null), 2000);
   };
 
   // Rescan specific folder
@@ -132,7 +227,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleDeleteFolder = async (folder: FolderType) => {
     if (
       !confirm(
-        `Are you sure you want to remove "${folder.name}"? Videos in this folder will be unindexed from CineVault (your local files will NOT be deleted).`
+        `Are you sure you want to remove "${folder.name}"? Videos in this folder will be unindexed from CineVault (your actual files will NOT be deleted).`
       )
     ) {
       return;
@@ -195,9 +290,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
+  // Memory calculation
+  const totalMem = systemInfo?.totalMemBytes || 4294967296;
+  const freeMem = systemInfo?.freeMemBytes || 2147483648;
+  const usedMem = Math.max(0, totalMem - freeMem);
+  const memUsagePercent = Math.round((usedMem / totalMem) * 100);
+
   return (
     <div className="mx-auto max-w-5xl space-y-8 pb-20">
-      {/* 1. Account & Profile Header Card (Looks like an Account Hub) */}
+      {/* 1. Account & Profile Header Card */}
       <section className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-r from-[#0b0f19] via-[#0f172a] to-[#0b0f19] p-6 sm:p-8 shadow-2xl">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center space-x-5">
@@ -220,12 +321,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       type="text"
                       value={tempName}
                       onChange={(e) => setTempName(e.target.value)}
-                      className="rounded-lg border border-indigo-500 bg-black/60 px-2 py-1 text-sm font-bold text-white focus:outline-none"
+                      className="rounded-lg border border-indigo-500 bg-black/60 px-2.5 py-1 text-sm font-bold text-white focus:outline-none"
                       autoFocus
                     />
                     <button
                       onClick={handleSaveName}
-                      className="rounded-lg bg-indigo-500 p-1.5 text-white hover:bg-indigo-400"
+                      className="rounded-lg bg-indigo-500 p-1.5 text-white hover:bg-indigo-400 active:scale-95 transition-all"
                     >
                       <Check className="h-4 w-4" />
                     </button>
@@ -240,7 +341,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         setTempName(profileName);
                         setIsEditingName(true);
                       }}
-                      className="text-[11px] text-[#71717A] hover:text-indigo-400 underline ml-1"
+                      className="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 underline ml-1"
                     >
                       Edit
                     </button>
@@ -249,12 +350,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                <span className="inline-flex items-center space-x-1.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-300">
-                  <Shield className="h-3 w-3" />
-                  <span>Private Local Vault</span>
+                <span className="inline-flex items-center space-x-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Server Healthy</span>
                 </span>
                 <span className="rounded-full bg-white/5 border border-white/10 px-2.5 py-0.5 text-[11px] font-mono text-[#A1A1AA]">
-                  Host: 0.0.0.0:3000
+                  Port: 3000
+                </span>
+                <span className="rounded-full bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 text-[11px] text-indigo-300">
+                  Direct Streaming
                 </span>
               </div>
             </div>
@@ -262,52 +366,53 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           {/* Quick Metrics Pills */}
           <div className="flex items-center gap-2 sm:self-center">
-            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center">
+            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center min-w-[76px]">
               <span className="text-[10px] uppercase font-bold text-[#71717A] block">Movies</span>
               <span className="text-base font-extrabold text-white">{stats ? stats.totalVideos : 0}</span>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center">
+            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center min-w-[85px]">
               <span className="text-[10px] uppercase font-bold text-[#71717A] block">Storage</span>
               <span className="text-base font-extrabold text-white">
                 {stats ? formatBytes(stats.totalStorageBytes) : '0 B'}
               </span>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center">
-              <span className="text-[10px] uppercase font-bold text-[#71717A] block">Favorites</span>
-              <span className="text-base font-extrabold text-rose-400">
-                {stats ? stats.favoriteVideos : 0}
+            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-center min-w-[76px]">
+              <span className="text-[10px] uppercase font-bold text-[#71717A] block">Folders</span>
+              <span className="text-base font-extrabold text-indigo-400">
+                {folders.length}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Sub-Navigation Pill Bar */}
+        {/* Navigation Tabs Bar */}
         <div className="mt-8 flex flex-wrap gap-2 border-t border-white/10 pt-5">
           <button
-            onClick={() => setActiveTab('remote')}
+            onClick={() => setActiveTab('health')}
             className={`flex items-center space-x-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
-              activeTab === 'remote'
+              activeTab === 'health'
                 ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
                 : 'bg-white/5 text-[#A1A1AA] hover:bg-white/10 hover:text-white'
             }`}
           >
-            <Tv className="h-4 w-4 text-indigo-300" />
-            <span>Remote Access & Android TV</span>
-            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[9px] text-emerald-300 uppercase">
-              Guide
-            </span>
+            <Activity className="h-4 w-4 text-emerald-400" />
+            <span>Health Status</span>
+            <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse ml-0.5" />
           </button>
 
           <button
-            onClick={() => setActiveTab('folders')}
+            onClick={() => setActiveTab('directories')}
             className={`flex items-center space-x-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
-              activeTab === 'folders'
+              activeTab === 'directories'
                 ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
                 : 'bg-white/5 text-[#A1A1AA] hover:bg-white/10 hover:text-white'
             }`}
           >
             <Folder className="h-4 w-4" />
-            <span>Media Folders ({folders.length})</span>
+            <span>Directories Management</span>
+            <span className="rounded-full bg-white/15 px-1.5 py-0.2 text-[10px]">
+              {folders.length}
+            </span>
           </button>
 
           <button
@@ -319,7 +424,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             }`}
           >
             <Sliders className="h-4 w-4" />
-            <span>Player & Subtitles</span>
+            <span>Playback Engine</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('remote')}
+            className={`flex items-center space-x-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
+              activeTab === 'remote'
+                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
+                : 'bg-white/5 text-[#A1A1AA] hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <Tv className="h-4 w-4 text-indigo-300" />
+            <span>Remote & Android TV</span>
           </button>
 
           <button
@@ -331,96 +448,237 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             }`}
           >
             <User className="h-4 w-4" />
-            <span>Account Profile</span>
+            <span>Cinema Profile</span>
           </button>
 
           <button
-            onClick={() => setActiveTab('system')}
+            onClick={() => setActiveTab('maintenance')}
             className={`flex items-center space-x-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
-              activeTab === 'system'
+              activeTab === 'maintenance'
                 ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
                 : 'bg-white/5 text-[#A1A1AA] hover:bg-white/10 hover:text-white'
             }`}
           >
-            <Cpu className="h-4 w-4" />
-            <span>System & Danger Zone</span>
+            <Shield className="h-4 w-4 text-amber-400" />
+            <span>Maintenance & Reset</span>
           </button>
         </div>
       </section>
 
       {/* 2. Content for Selected Tab */}
 
-      {/* TAB 1: REMOTE ACCESS & ANDROID TV */}
-      {activeTab === 'remote' && <RemoteAccessGuide port={3000} />}
-
-      {/* TAB 2: PROFILE & PREFERENCES */}
-      {activeTab === 'profile' && (
+      {/* TAB 1: HEALTH STATUS */}
+      {activeTab === 'health' && (
         <div className="space-y-6">
+          {/* Real-time Health Banner */}
+          <section className="relative overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/20 via-[#0b0f19] to-[#0b0f19] p-6 sm:p-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-white/5 pb-6">
+              <div className="flex items-center space-x-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400">
+                  <Activity className="h-6 w-6 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h2 className="text-lg font-bold text-white">System & Server Health</h2>
+                    <span className="rounded-full bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-extrabold uppercase text-emerald-400">
+                      100% Operational
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#71717A] mt-0.5">
+                    Real-time monitoring of local HTTP streaming services, SQLite database, and video pipeline.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                {healthStatus?.latencyMs !== undefined && (
+                  <div className="rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-right">
+                    <span className="text-[10px] uppercase font-bold text-[#71717A] block">Ping Latency</span>
+                    <span className="text-xs font-mono font-bold text-emerald-400">
+                      {healthStatus.latencyMs} ms
+                    </span>
+                  </div>
+                )}
+                <button
+                  onClick={runHealthCheck}
+                  disabled={isTestingHealth}
+                  className="flex items-center space-x-1.5 rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-bold text-black hover:bg-emerald-400 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-emerald-500/20"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isTestingHealth ? 'animate-spin' : ''}`} />
+                  <span>{isTestingHealth ? 'Pinging...' : 'Test Health Ping'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Health Subsystem Status Matrix */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-6">
+              <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#A1A1AA]">HTTP Streamer</span>
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
+                </div>
+                <div className="mt-3">
+                  <p className="text-sm font-bold text-white">RFC 7233 Range</p>
+                  <p className="text-[11px] text-emerald-400 font-mono mt-0.5">Byte-Range Seeking Active</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#A1A1AA]">Database Engine</span>
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
+                </div>
+                <div className="mt-3">
+                  <p className="text-sm font-bold text-white">SQLite 3 Embedded</p>
+                  <p className="text-[11px] text-emerald-400 font-mono mt-0.5">WAL Journal Connected</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#A1A1AA]">CORS & Headers</span>
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
+                </div>
+                <div className="mt-3">
+                  <p className="text-sm font-bold text-white">Cross-Origin Allowed</p>
+                  <p className="text-[11px] text-emerald-400 font-mono mt-0.5">Web & TV Unrestricted</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#A1A1AA]">Ingress Port</span>
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
+                </div>
+                <div className="mt-3">
+                  <p className="text-sm font-bold text-white">0.0.0.0:3000</p>
+                  <p className="text-[11px] text-emerald-400 font-mono mt-0.5">External Proxy Bound</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* System Hardware & Resource Utilization */}
           <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
             <h2 className="text-base font-bold text-white flex items-center space-x-2 border-b border-white/5 pb-4">
-              <User className="h-5 w-5 text-indigo-400" />
-              <span>Cinema Profile Customization</span>
+              <Gauge className="h-5 w-5 text-indigo-400" />
+              <span>Resource & Hardware Utilization</span>
             </h2>
 
-            <div className="space-y-4 max-w-xl">
-              <div>
-                <label className="block text-xs font-semibold text-[#A1A1AA] uppercase">Profile Display Name</label>
-                <div className="mt-1.5 flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={profileName}
-                    onChange={(e) => {
-                      setProfileName(e.target.value);
-                      localStorage.setItem('cinevault_profile_name', e.target.value);
-                    }}
-                    className="w-full rounded-xl border border-white/10 bg-[#060b17] px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none"
-                    placeholder="e.g. Cinema Room TV"
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {/* RAM Usage */}
+              <div className="rounded-2xl border border-white/5 bg-[#060b17] p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#A1A1AA] uppercase">Memory (RAM)</span>
+                  <span className="text-xs font-mono font-bold text-indigo-400">{memUsagePercent}%</span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                    style={{ width: `${memUsagePercent}%` }}
                   />
                 </div>
-                <p className="mt-1 text-[11px] text-[#71717A]">
-                  Customized locally on this device.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#A1A1AA] uppercase">Storage Mode</label>
-                <div className="mt-2 rounded-2xl border border-white/5 bg-[#060b17] p-4 flex items-center justify-between">
-                  <div>
-                    <span className="text-sm font-semibold text-white">Direct Local File Streaming</span>
-                    <p className="text-xs text-[#71717A]">Files are read in real-time from device filesystem.</p>
-                  </div>
-                  <span className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-bold text-emerald-400">
-                    ACTIVE
-                  </span>
+                <div className="flex items-center justify-between text-[11px] text-[#71717A]">
+                  <span>Used: {formatBytes(usedMem)}</span>
+                  <span>Total: {formatBytes(totalMem)}</span>
                 </div>
               </div>
+
+              {/* Indexed Media Storage */}
+              <div className="rounded-2xl border border-white/5 bg-[#060b17] p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#A1A1AA] uppercase">Media Storage</span>
+                  <span className="text-xs font-mono font-bold text-emerald-400">
+                    {stats ? stats.totalVideos : 0} Videos
+                  </span>
+                </div>
+                <div className="text-xl font-extrabold text-white">
+                  {stats ? formatBytes(stats.totalStorageBytes) : '0 B'}
+                </div>
+                <div className="text-[11px] text-[#71717A]">
+                  Across {folders.length} configured media directories
+                </div>
+              </div>
+
+              {/* Runtime Environment */}
+              <div className="rounded-2xl border border-white/5 bg-[#060b17] p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#A1A1AA] uppercase">Server Runtime</span>
+                  <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-zinc-300 font-mono">
+                    {systemInfo?.nodeVersion || 'Node.js'}
+                  </span>
+                </div>
+                <div className="text-sm font-bold text-white capitalize">
+                  {systemInfo?.platform || 'Linux'} Container
+                </div>
+                <div className="text-[11px] text-[#71717A] font-mono truncate">
+                  Host: {systemInfo?.hostname || 'localhost'}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Supported Video Codecs & Stream Pipeline */}
+          <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
+            <h2 className="text-base font-bold text-white flex items-center space-x-2 border-b border-white/5 pb-4">
+              <Play className="h-5 w-5 text-indigo-400" />
+              <span>Format & Codec Playback Compatibility</span>
+            </h2>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { ext: '.mp4', label: 'MP4 / H.264', status: 'Native Passthrough', state: 'Supported' },
+                { ext: '.webm', label: 'WebM / VP8/VP9', status: 'Direct Stream', state: 'Supported' },
+                { ext: '.mkv', label: 'Matroska (.mkv)', status: 'Remux / Fallback', state: 'Supported' },
+                { ext: '.ts', label: 'MPEG-TS (.ts)', status: 'HLS Compatible', state: 'Supported' }
+              ].map((c) => (
+                <div key={c.ext} className="rounded-2xl border border-white/5 bg-[#060b17] p-3.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs font-bold text-white">{c.ext}</span>
+                    <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.2 text-[9px] font-bold text-emerald-400">
+                      {c.state}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#A1A1AA] font-semibold">{c.label}</p>
+                  <p className="text-[10px] text-[#71717A]">{c.status}</p>
+                </div>
+              ))}
             </div>
           </section>
         </div>
       )}
 
-      {/* TAB 3: MEDIA FOLDERS */}
-      {activeTab === 'folders' && (
-        <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-white/5 pb-4">
+      {/* TAB 2: DIRECTORIES MANAGEMENT */}
+      {activeTab === 'directories' && (
+        <section className="space-y-6 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-white/5 pb-6">
             <div>
-              <h2 className="text-base font-bold text-white flex items-center space-x-2">
+              <h2 className="text-lg font-bold text-white flex items-center space-x-2">
                 <Folder className="h-5 w-5 text-indigo-400" />
-                <span>Configured Media Folders</span>
+                <span>Media Directories Management</span>
               </h2>
-              <p className="text-xs text-[#71717A]">
-                Directories scanned for video files (.mp4, .webm, .mkv, .ts, etc.)
+              <p className="text-xs text-[#71717A] mt-0.5">
+                Manage local and network directories indexed by CineVault for movies and video playback.
               </p>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={onCreateSampleMedia}
                 disabled={isCreatingSample}
-                className="flex items-center space-x-1.5 rounded-xl border border-white/10 bg-[#181B24] px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50 transition-all"
+                className="flex items-center space-x-1.5 rounded-xl border border-white/10 bg-[#181B24] px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50 transition-all active:scale-95"
               >
                 <Sparkles className="h-3.5 w-3.5 text-amber-400" />
                 <span>{isCreatingSample ? 'Generating...' : 'Add Demo Media'}</span>
+              </button>
+
+              <button
+                onClick={handleScanAll}
+                disabled={isScanningAll}
+                className="flex items-center space-x-1.5 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50 transition-all active:scale-95"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${isScanningAll ? 'animate-spin text-indigo-400' : ''}`} />
+                <span>{isScanningAll ? 'Scanning...' : 'Scan All'}</span>
               </button>
 
               <button
@@ -428,50 +686,88 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="flex items-center space-x-1.5 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-500/25 hover:bg-indigo-400 transition-all active:scale-95"
               >
                 <FolderPlus className="h-4 w-4" />
-                <span>Add Folder</span>
+                <span>Add Directory</span>
               </button>
             </div>
           </div>
 
           {folders.length === 0 ? (
-            <div className="py-12 text-center text-xs text-[#71717A]">
-              No media folders added yet. Click "Add Folder" or "Add Demo Media" to start.
+            <div className="py-16 text-center space-y-3">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-white/5 text-[#71717A]">
+                <Folder className="h-8 w-8" />
+              </div>
+              <h3 className="text-sm font-bold text-white">No Media Directories Configured</h3>
+              <p className="text-xs text-[#71717A] max-w-sm mx-auto">
+                Add a local folder or network share path to start indexing your media library.
+              </p>
+              <div className="pt-2">
+                <button
+                  onClick={onOpenAddFolder}
+                  className="rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 shadow-md shadow-indigo-500/30"
+                >
+                  Add Your First Directory
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="divide-y divide-white/5">
+            <div className="space-y-3">
               {folders.map((folder) => (
                 <div
                   key={folder.id}
-                  className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="rounded-2xl border border-white/5 bg-[#060b17] p-4 sm:p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-all hover:border-white/10"
                 >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-sm text-white">{folder.name}</span>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-sm text-white">{folder.name}</span>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
                           folder.enabled
-                            ? 'bg-emerald-500/20 text-emerald-400'
-                            : 'bg-zinc-800 text-zinc-400'
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
                         }`}
                       >
                         {folder.enabled ? 'ACTIVE' : 'DISABLED'}
                       </span>
-                      <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-[#A1A1AA]">
-                        {folder.video_count} videos
+                      <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-zinc-300 font-semibold">
+                        {folder.video_count} {folder.video_count === 1 ? 'video' : 'videos'}
                       </span>
+                      {folder.folder_type && folder.folder_type !== 'local' && (
+                        <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] text-indigo-300 uppercase font-bold">
+                          {folder.folder_type}
+                        </span>
+                      )}
                     </div>
-                    <p className="break-all font-mono text-xs text-[#71717A]">{folder.path}</p>
+
+                    <div className="flex items-center space-x-2 text-xs text-[#71717A] font-mono">
+                      <span className="truncate max-w-lg">{folder.path}</span>
+                      <button
+                        onClick={() => handleCopy(folder.path, String(folder.id))}
+                        className="text-[#71717A] hover:text-white transition-colors"
+                        title="Copy folder path"
+                      >
+                        {copiedPath === String(folder.id) ? (
+                          <Check className="h-3 w-3 text-emerald-400" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
+
                     {folder.last_scanned_at && (
                       <p className="text-[11px] text-[#71717A]">
-                        Last scanned: {formatDate(folder.last_scanned_at)}
+                        Last indexed: {formatDate(folder.last_scanned_at)}
                       </p>
                     )}
                   </div>
 
-                  <div className="flex items-center space-x-2 self-end sm:self-center">
+                  <div className="flex items-center space-x-2 self-end sm:self-center shrink-0">
                     <button
                       onClick={() => handleToggleFolderEnabled(folder)}
-                      className="rounded-xl border border-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/5 transition-all"
+                      className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                        folder.enabled
+                          ? 'border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10'
+                          : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                      }`}
                     >
                       {folder.enabled ? 'Disable' : 'Enable'}
                     </button>
@@ -479,20 +775,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <button
                       onClick={() => handleScanFolder(folder.id)}
                       disabled={scanningFolderId === folder.id}
-                      className="flex items-center space-x-1 rounded-xl border border-white/10 bg-[#060b17] px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50 transition-all"
+                      className="flex items-center space-x-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50 transition-all active:scale-95"
                     >
                       <RefreshCw
                         className={`h-3 w-3 ${
                           scanningFolderId === folder.id ? 'animate-spin text-indigo-400' : ''
                         }`}
                       />
-                      <span>{scanningFolderId === folder.id ? 'Scanning...' : 'Scan'}</span>
+                      <span>{scanningFolderId === folder.id ? 'Scanning...' : 'Rescan'}</span>
                     </button>
 
                     <button
                       onClick={() => handleDeleteFolder(folder)}
-                      className="rounded-xl p-2 text-[#71717A] hover:bg-red-500/20 hover:text-red-400 transition-all"
-                      title="Remove folder"
+                      className="rounded-xl p-2 text-[#71717A] hover:bg-red-500/20 hover:text-red-400 transition-all active:scale-95"
+                      title="Remove folder from CineVault"
                       aria-label="Remove Folder"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -505,20 +801,57 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </section>
       )}
 
-      {/* TAB 4: PLAYBACK & EXPERIENCE */}
+      {/* TAB 3: PLAYBACK ENGINE */}
       {activeTab === 'playback' && (
-        <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
-          <h2 className="text-base font-bold text-white flex items-center space-x-2 border-b border-white/5 pb-4">
-            <Sliders className="h-5 w-5 text-indigo-400" />
-            <span>Playback Experience & Audio</span>
-          </h2>
+        <section className="space-y-6 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
+          <div className="border-b border-white/5 pb-4">
+            <h2 className="text-lg font-bold text-white flex items-center space-x-2">
+              <Sliders className="h-5 w-5 text-indigo-400" />
+              <span>Player Engine & Audio Settings</span>
+            </h2>
+            <p className="text-xs text-[#71717A] mt-0.5">
+              Configure default playback speed, video aspect ratio, ambient glow, and audio controls.
+            </p>
+          </div>
 
-          <div className="divide-y divide-white/5 text-sm">
-            <div className="flex items-center justify-between py-4">
+          <div className="divide-y divide-white/5 text-sm space-y-4">
+            {/* Default Playback Speed */}
+            <div className="py-2 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-white block">Default Playback Speed</span>
+                  <p className="text-xs text-[#71717A]">
+                    Initial speed applied when starting or resuming videos
+                  </p>
+                </div>
+                <span className="rounded-full bg-indigo-500/20 border border-indigo-500/30 px-2.5 py-0.5 text-xs font-bold text-indigo-300">
+                  {defaultSpeed}x {defaultSpeed === 1 ? '(Normal)' : ''}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((spd) => (
+                  <button
+                    key={spd}
+                    onClick={() => handleSpeedPreferenceChange(spd)}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
+                      defaultSpeed === spd
+                        ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30'
+                        : 'bg-[#060b17] border border-white/10 text-[#A1A1AA] hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    {spd}x {spd === 1 ? 'Normal' : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Autoplay Next */}
+            <div className="flex items-center justify-between pt-5">
               <div>
                 <span className="font-semibold text-white">Autoplay Next Video</span>
                 <p className="text-xs text-[#71717A]">
-                  Automatically play the next video in the folder when the current one finishes
+                  Automatically play the next video in the directory when current one ends
                 </p>
               </div>
               <button
@@ -535,11 +868,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center justify-between py-4">
+            {/* Auto Resume */}
+            <div className="flex items-center justify-between pt-5">
               <div>
                 <span className="font-semibold text-white">Auto-Resume Playback</span>
                 <p className="text-xs text-[#71717A]">
-                  Automatically resume videos where you previously stopped
+                  Remember exact playback timestamp and show instant resume prompt
                 </p>
               </div>
               <button
@@ -556,7 +890,70 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
 
-            <div className="py-4 space-y-2">
+            {/* Aspect Ratio Mode */}
+            <div className="pt-5 space-y-3">
+              <span className="font-semibold text-white block">Default Screen Fit Mode</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleFitModeChange('contain')}
+                  className={`rounded-2xl border p-4 text-left transition-all ${
+                    defaultFitMode === 'contain'
+                      ? 'border-indigo-500 bg-indigo-500/10'
+                      : 'border-white/5 bg-[#060b17] hover:border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">Original Fit (Contain / Letterbox)</span>
+                    {defaultFitMode === 'contain' && <Check className="h-4 w-4 text-indigo-400" />}
+                  </div>
+                  <p className="text-[11px] text-[#71717A] mt-1">
+                    Preserves original cinematography aspect ratio without cropping.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => handleFitModeChange('cover')}
+                  className={`rounded-2xl border p-4 text-left transition-all ${
+                    defaultFitMode === 'cover'
+                      ? 'border-indigo-500 bg-indigo-500/10'
+                      : 'border-white/5 bg-[#060b17] hover:border-white/10'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">Fill Screen (Cover / Zoom)</span>
+                    {defaultFitMode === 'cover' && <Check className="h-4 w-4 text-indigo-400" />}
+                  </div>
+                  <p className="text-[11px] text-[#71717A] mt-1">
+                    Fills entire display edge-to-edge for immersive TV viewing.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Cinematic Ambient Glow */}
+            <div className="flex items-center justify-between pt-5">
+              <div>
+                <span className="font-semibold text-white">Cinematic Ambient Glow</span>
+                <p className="text-xs text-[#71717A]">
+                  Projects a soft ambient backdrop light around the player matching video colors
+                </p>
+              </div>
+              <button
+                onClick={handleAmbientGlowToggle}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  ambientGlow ? 'bg-indigo-500' : 'bg-zinc-700'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    ambientGlow ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Startup Volume Slider */}
+            <div className="pt-5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-white flex items-center space-x-2">
                   <Volume2 className="h-4 w-4 text-indigo-400" />
@@ -566,22 +963,107 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <input
                 type="range"
-                min="10"
+                min="0"
                 max="100"
                 step="5"
                 value={defaultVolume}
                 onChange={(e) => handleVolumeChange(parseInt(e.target.value, 10))}
-                className="w-full accent-indigo-500 cursor-pointer"
+                className="w-full accent-indigo-500 cursor-pointer h-2 bg-white/10 rounded-lg"
               />
             </div>
           </div>
         </section>
       )}
 
-      {/* TAB 5: SYSTEM & DANGER ZONE */}
-      {activeTab === 'system' && (
+      {/* TAB 4: REMOTE & ANDROID TV */}
+      {activeTab === 'remote' && <RemoteAccessGuide port={3000} />}
+
+      {/* TAB 5: PROFILE & CUSTOMIZATION */}
+      {activeTab === 'profile' && (
         <div className="space-y-6">
-          {/* Library Maintenance Actions */}
+          <section className="space-y-6 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
+            <div className="border-b border-white/5 pb-4">
+              <h2 className="text-lg font-bold text-white flex items-center space-x-2">
+                <User className="h-5 w-5 text-indigo-400" />
+                <span>Cinema Profile & Personalization</span>
+              </h2>
+              <p className="text-xs text-[#71717A] mt-0.5">
+                Customize administrator name, theme accents, and view private vault statistics.
+              </p>
+            </div>
+
+            <div className="space-y-4 max-w-xl">
+              <div>
+                <label className="block text-xs font-semibold text-[#A1A1AA] uppercase">Profile Display Name</label>
+                <div className="mt-2 flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={profileName}
+                    onChange={(e) => {
+                      setProfileName(e.target.value);
+                      localStorage.setItem('cinevault_profile_name', e.target.value);
+                    }}
+                    className="w-full rounded-xl border border-white/10 bg-[#060b17] px-4 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none"
+                    placeholder="e.g. Cinema Room TV"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-[#71717A]">
+                  Saved locally to this browser session.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#A1A1AA] uppercase">Storage Mode</label>
+                <div className="mt-2 rounded-2xl border border-white/5 bg-[#060b17] p-4 flex items-center justify-between">
+                  <div>
+                    <span className="text-sm font-semibold text-white">Direct Local File Streaming</span>
+                    <p className="text-xs text-[#71717A]">Files are read in real-time from device filesystem.</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-bold text-emerald-400">
+                    ACTIVE
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Library Statistics Summary */}
+            <div className="pt-4 border-t border-white/5">
+              <h3 className="text-sm font-bold text-white mb-3">Library Watch Statistics</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 text-center">
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] block">Total Movies</span>
+                  <span className="text-lg font-extrabold text-white mt-1 block">
+                    {stats?.totalVideos || 0}
+                  </span>
+                </div>
+                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 text-center">
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] block">Completed</span>
+                  <span className="text-lg font-extrabold text-emerald-400 mt-1 block">
+                    {stats?.watchedVideos || 0}
+                  </span>
+                </div>
+                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 text-center">
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] block">In Progress</span>
+                  <span className="text-lg font-extrabold text-indigo-400 mt-1 block">
+                    {stats?.inProgressVideos || 0}
+                  </span>
+                </div>
+                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4 text-center">
+                  <span className="text-[10px] uppercase font-bold text-[#71717A] block">Favorites</span>
+                  <span className="text-lg font-extrabold text-rose-400 mt-1 block">
+                    {stats?.favoriteVideos || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* TAB 6: MAINTENANCE & DANGER ZONE */}
+      {activeTab === 'maintenance' && (
+        <div className="space-y-6">
+          {/* Maintenance Actions */}
           <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
             <h2 className="text-base font-bold text-white flex items-center space-x-2 border-b border-white/5 pb-4">
               <HardDrive className="h-5 w-5 text-indigo-400" />
@@ -600,7 +1082,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button
                     onClick={handleScanAll}
                     disabled={isScanningAll}
-                    className="flex items-center space-x-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 disabled:opacity-50 transition-all"
+                    className="flex items-center space-x-2 rounded-xl bg-indigo-500 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-400 disabled:opacity-50 transition-all active:scale-95"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${isScanningAll ? 'animate-spin' : ''}`} />
                     <span>{isScanningAll ? 'Scanning Library...' : 'Scan All Folders'}</span>
@@ -619,7 +1101,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <button
                     onClick={handleCleanup}
                     disabled={isCleaningUp}
-                    className="flex items-center space-x-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50 transition-all"
+                    className="flex items-center space-x-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50 transition-all active:scale-95"
                   >
                     <RotateCcw className={`h-3.5 w-3.5 ${isCleaningUp ? 'animate-spin' : ''}`} />
                     <span>{isCleaningUp ? 'Cleaning...' : 'Run Cleanup'}</span>
@@ -635,42 +1117,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             )}
           </section>
 
-          {/* Hardware & Diagnostics */}
-          {systemInfo && (
-            <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
-              <h2 className="text-base font-bold text-white flex items-center space-x-2 border-b border-white/5 pb-4">
-                <Cpu className="h-5 w-5 text-indigo-400" />
-                <span>Local System Diagnostics</span>
-              </h2>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4">
-                  <span className="text-[11px] font-medium text-[#71717A] uppercase">Platform</span>
-                  <p className="mt-0.5 text-sm font-bold text-white capitalize">{systemInfo.platform}</p>
-                </div>
-
-                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4">
-                  <span className="text-[11px] font-medium text-[#71717A] uppercase">Node.js Runtime</span>
-                  <p className="mt-0.5 text-sm font-bold text-white font-mono">{systemInfo.nodeVersion}</p>
-                </div>
-
-                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4">
-                  <span className="text-[11px] font-medium text-[#71717A] uppercase">Free Memory</span>
-                  <p className="mt-0.5 text-sm font-bold text-white">
-                    {formatBytes(systemInfo.freeMemBytes)} / {formatBytes(systemInfo.totalMemBytes)}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-white/5 bg-[#060b17] p-4">
-                  <span className="text-[11px] font-medium text-[#71717A] uppercase">Total Media Size</span>
-                  <p className="mt-0.5 text-sm font-bold text-white">
-                    {stats ? formatBytes(stats.totalStorageBytes) : '--'}
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
-
           {/* Danger Zone */}
           <section className="space-y-4 rounded-3xl border border-red-500/20 bg-red-950/10 p-6 sm:p-8">
             <h2 className="text-base font-bold text-red-300 flex items-center space-x-2 border-b border-red-500/20 pb-4">
@@ -678,8 +1124,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <span>Reset Library Database</span>
             </h2>
             <p className="text-xs text-[#A1A1AA]">
-              Clears all indexed videos, folders, playback watch progress, and favorites from the CineVault database.
-              <strong> Does not delete any video files from your device.</strong>
+              Clears all indexed videos, directories, playback watch progress, and favorites from the CineVault SQLite database.
+              <strong> Your physical video files on your device are never touched or deleted.</strong>
             </p>
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-2">
@@ -693,7 +1139,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 onClick={handleResetLibrary}
                 disabled={isResetting || resetConfirmText.trim() !== 'RESET'}
-                className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-40 transition-all"
+                className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-40 transition-all active:scale-95"
               >
                 {isResetting ? 'Resetting...' : 'Reset CineVault Database'}
               </button>

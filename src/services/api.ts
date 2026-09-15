@@ -22,8 +22,17 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // System & Health
-  async getHealth() {
-    return fetchJson<{ status: string }>('/api/health');
+  async getHealth(): Promise<{
+    status: string;
+    timestamp: string;
+    uptimeSeconds?: number;
+    database?: string;
+    streamingEngine?: string;
+    nodeVersion?: string;
+    freeMemBytes?: number;
+    totalMemBytes?: number;
+  }> {
+    return fetchJson('/api/health');
   },
 
   async getSystemInfo(): Promise<SystemInfo> {
