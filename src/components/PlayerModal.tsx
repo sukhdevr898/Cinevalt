@@ -120,11 +120,21 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   const prevVideo = currentIndex > 0 ? allVideos[currentIndex - 1] : null;
   const nextVideo = currentIndex < allVideos.length - 1 ? allVideos[currentIndex + 1] : null;
 
-  // Stream URL
-  const streamUrl =
-    video.source_type === 'youtube' || video.source_type === 'gdrive'
+  // Stream URL for media playback
+  const [streamUrl, setStreamUrl] = useState<string>(() => {
+    return video.source_type === 'youtube' || video.source_type === 'gdrive'
       ? (video.remote_url || video.absolute_path)
       : api.getVideoStreamUrl(video.id, video.extension);
+  });
+
+  useEffect(() => {
+    const initialUrl =
+      video.source_type === 'youtube' || video.source_type === 'gdrive'
+        ? (video.remote_url || video.absolute_path)
+        : api.getVideoStreamUrl(video.id, video.extension);
+    setStreamUrl(initialUrl);
+    setHasError(null);
+  }, [video.id, video.source_type, video.remote_url, video.absolute_path, video.extension]);
 
   const showActionToast = (msg: string) => {
     setActionNotice(msg);
@@ -564,95 +574,99 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
       {/* Main Video Viewport */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden">
-        <ReactPlayer
-          ref={playerRef as any}
-          src={streamUrl}
-          playing={isPlaying}
-          volume={volume}
-          muted={isMuted}
-          playbackRate={playbackSpeed}
-          width="100%"
-          height="100%"
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0
-          }}
-          className={`react-player-wrapper ${
-            fitMode === 'cover' ? '[&_video]:object-cover' : '[&_video]:object-contain'
-          }`}
-          onPlay={() => {
-            userPausedRef.current = false;
-            setIsPlaying(true);
-            setIsLoading(false);
-            const media = getMediaElement();
-            if (media && typeof media === 'object' && 'playbackRate' in media) {
-              try {
-                (media as HTMLVideoElement).playbackRate = playbackSpeed;
-              } catch {
-                // ignore
-              }
-            }
-          }}
-          onPause={() => {
-            // Only update isPlaying if user explicitly paused or via PiP mode
-            if (userPausedRef.current || document.pictureInPictureElement) {
-              setIsPlaying(false);
-            }
-          }}
-          onWaiting={() => setIsLoading(true)}
-          onPlaying={() => {
-            setIsLoading(false);
-            if (!userPausedRef.current) {
+        {streamUrl && (
+          <ReactPlayer
+            ref={playerRef as any}
+            src={streamUrl}
+            playing={isPlaying}
+            volume={volume}
+            muted={isMuted}
+            playbackRate={playbackSpeed}
+            width="100%"
+            height="100%"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0
+            }}
+            className={`react-player-wrapper ${
+              fitMode === 'cover' ? '[&_video]:object-cover' : '[&_video]:object-contain'
+            }`}
+            onPlay={() => {
+              userPausedRef.current = false;
               setIsPlaying(true);
-            }
-          }}
-          onTimeUpdate={(e: any) => {
-            const current = e.currentTarget?.currentTime || 0;
-            setCurrentTime(current);
-            progressRef.current.currentTime = current;
-            if (!duration && e.currentTarget?.duration > 0) {
-              const dur = e.currentTarget.duration;
+              setIsLoading(false);
+              const media = getMediaElement();
+              if (media && typeof media === 'object' && 'playbackRate' in media) {
+                try {
+                  (media as HTMLVideoElement).playbackRate = playbackSpeed;
+                } catch {
+                  // ignore
+                }
+              }
+            }}
+            onPause={() => {
+              // Only update isPlaying if user explicitly paused or via PiP mode
+              if (userPausedRef.current || document.pictureInPictureElement) {
+                setIsPlaying(false);
+              }
+            }}
+            onWaiting={() => setIsLoading(true)}
+            onPlaying={() => {
+              setIsLoading(false);
+              if (!userPausedRef.current) {
+                setIsPlaying(true);
+              }
+            }}
+            onTimeUpdate={(e: any) => {
+              const current = e.currentTarget?.currentTime || 0;
+              setCurrentTime(current);
+              progressRef.current.currentTime = current;
+              if (!duration && e.currentTarget?.duration > 0) {
+                const dur = e.currentTarget.duration;
+                setDuration(dur);
+                progressRef.current.duration = dur;
+              }
+            }}
+            onDurationChange={(e: any) => {
+              const dur = e.currentTarget?.duration || 0;
               setDuration(dur);
               progressRef.current.duration = dur;
-            }
-          }}
-          onDurationChange={(e: any) => {
-            const dur = e.currentTarget?.duration || 0;
-            setDuration(dur);
-            progressRef.current.duration = dur;
-            setIsLoading(false);
-            if (!hasResumedRef.current && video.position_seconds && video.position_seconds > 10 && !video.completed && resumePrompt === null) {
-              hasResumedRef.current = true;
-              seekTo(video.position_seconds);
-            }
-          }}
-          onEnded={() => {
-            userPausedRef.current = true;
-            setIsPlaying(false);
-            setIsLoading(false);
-            const { duration: dur } = progressRef.current;
-            if (dur > 0) {
-              api.updateProgress(video.id, dur, dur, true).catch(() => {});
-            }
-            if (autoplayNext && nextVideo) {
-              onSelectVideo(nextVideo);
-            }
-          }}
-          onError={(e: any) => {
-            // Ignore normal unmount aborts when modal closes or unmounts
-            if (e?.name === 'AbortError' || (typeof e?.message === 'string' && e.message.includes('interrupted'))) {
-              return;
-            }
-            setIsLoading(false);
-            console.error('ReactPlayer error', e);
-            setHasError(`Unable to play media source (${video.source_type}). Ensure codecs or permissions are valid.`);
-          }}
-          config={{
-            youtube: { playerVars: { modestbranding: 1, controls: 0 } },
-            html: { attributes: { playsInline: true, crossOrigin: 'anonymous' } }
-          } as any}
-        />
+              setIsLoading(false);
+              if (!hasResumedRef.current && video.position_seconds && video.position_seconds > 10 && !video.completed && resumePrompt === null) {
+                hasResumedRef.current = true;
+                seekTo(video.position_seconds);
+              }
+            }}
+            onEnded={() => {
+              userPausedRef.current = true;
+              setIsPlaying(false);
+              setIsLoading(false);
+              const { duration: dur } = progressRef.current;
+              if (dur > 0) {
+                api.updateProgress(video.id, dur, dur, true).catch(() => {});
+              }
+              if (autoplayNext && nextVideo) {
+                onSelectVideo(nextVideo);
+              }
+            }}
+            onError={(e: any) => {
+              const errName = typeof e?.name === 'string' ? e.name : '';
+              const errMsg = typeof e === 'string' ? e : (typeof e?.message === 'string' ? e.message : (e?.type || ''));
+              if (errName === 'AbortError' || errMsg.includes('interrupted') || errMsg.includes('abort')) {
+                return;
+              }
+
+              setIsLoading(false);
+              console.warn('Playback error message:', errMsg || errName || 'Codecs or network error');
+              setHasError(`Unable to play media source (${video.source_type}). Ensure codecs or permissions are valid.`);
+            }}
+            config={{
+              youtube: { playerVars: { modestbranding: 1, controls: 0 } },
+              html: { attributes: { playsInline: true } }
+            } as any}
+          />
+        )}
 
         {/* Center Spinner Loader */}
         {isLoading && !hasError && (

@@ -19,6 +19,12 @@ export async function scanYouTubePlaylist(folderId: number, playlistId: string):
   for (const item of items) {
     const videoId = item.id;
     if (!videoId) continue;
+
+    // Skip videos with duration less than 1 minute (60 seconds)
+    const duration = parseFloat(item.duration) || 0;
+    if (duration > 0 && duration < 60) {
+      continue;
+    }
     
     const title = item.title || 'Unknown Video';
     const thumbnail_url = item.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
@@ -70,6 +76,12 @@ export async function scanDriveFolder(folderId: number, driveFolderId: string): 
   for (const item of items) {
     const videoId = item.id;
     if (!videoId) continue;
+
+    // Skip videos with duration less than 1 minute (60 seconds)
+    const duration = parseFloat(item.duration) || 0;
+    if (duration > 0 && duration < 60) {
+      continue;
+    }
     
     const title = item.title || 'Drive Video';
     const thumbnail_url = item.thumbnails?.[0]?.url || null;

@@ -1,8 +1,12 @@
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { getDb, queryOne, runQuery } from './database.js';
 import { scanFolder } from './scanner.js';
 import { SAMPLE_MP4_BASE64 } from './sampleMp4Base64.js';
+
+const execFileAsync = promisify(execFile);
 
 export async function createSampleMediaIfEmpty(): Promise<{ created: boolean; folderPath?: string; message: string }> {
   await getDb();
@@ -24,31 +28,54 @@ export async function createSampleMediaIfEmpty(): Promise<{ created: boolean; fo
     {
       dir: movieDir1,
       name: 'Interstellar.Voyage.2024.1080p.WEBDL.x264.webm',
-      size: 4 * 1024 * 1024 // ~4MB
+      durationSeconds: 75,
+      targetMb: 12
     },
     {
       dir: movieDir1,
       name: 'Cyberpunk.City.Neon.Nights.2023.HDR.webm',
-      size: 3 * 1024 * 1024
+      durationSeconds: 80,
+      targetMb: 11
     },
     {
       dir: movieDir2,
       name: 'Pacific.Wilderness.Documentary.2024.webm',
-      size: 5 * 1024 * 1024
+      durationSeconds: 90,
+      targetMb: 14
     },
     {
       dir: movieDir2,
       name: 'Northern.Lights.Aurora.Borealis.1080p.webm',
-      size: 2 * 1024 * 1024
+      durationSeconds: 65,
+      targetMb: 12
     }
   ];
 
-  const sampleBuffer = Buffer.from(SAMPLE_MP4_BASE64, 'base64');
-
   for (const sample of sampleFiles) {
     const targetFile = path.join(sample.dir, sample.name);
-    if (!fs.existsSync(targetFile)) {
-      fs.writeFileSync(targetFile, sampleBuffer);
+    if (!fs.existsSync(targetFile) || fs.statSync(targetFile).size < 10 * 1024 * 1024) {
+      try {
+        await execFileAsync('ffmpeg', [
+          '-y',
+          '-f', 'lavfi', '-i', `testsrc=duration=${sample.durationSeconds}:size=640x360:rate=1`,
+          '-f', 'lavfi', '-i', `sine=frequency=440:duration=${sample.durationSeconds}`,
+          '-c:v', 'libvpx', '-b:v', '1500k',
+          '-c:a', 'libvorbis',
+          targetFile
+        ]);
+
+        const currentSize = fs.statSync(targetFile).size;
+        const padNeeded = (sample.targetMb * 1024 * 1024) - currentSize;
+        if (padNeeded > 0) {
+          const fd = fs.openSync(targetFile, 'a');
+          fs.writeSync(fd, Buffer.alloc(padNeeded));
+          fs.closeSync(fd);
+        }
+      } catch {
+        // Fallback to sample buffer if ffmpeg is unavailable
+        const sampleBuffer = Buffer.from(SAMPLE_MP4_BASE64, 'base64');
+        fs.writeFileSync(targetFile, sampleBuffer);
+      }
     }
   }
 

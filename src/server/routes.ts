@@ -14,7 +14,7 @@ import {
 import { scanFolder, scanAllFolders, getScanState } from './scanner.js';
 import { handleVideoStream, isPathContained } from './streaming.js';
 import { createSampleMediaIfEmpty } from './sampleMedia.js';
-import { isNativeBrowserPlayable } from './mimeTypes.js';
+import { isNativeBrowserPlayable, isSupportedVideo } from './mimeTypes.js';
 
 export function createApiRouter(): Router {
   const router = Router();
@@ -248,7 +248,7 @@ export function createApiRouter(): Router {
         sort_by = 'recent',
         sort_order = 'desc',
         filter = 'all',
-        limit = '100',
+        limit,
         offset = '0'
       } = req.query;
 
@@ -264,6 +264,11 @@ export function createApiRouter(): Router {
         LEFT JOIN playback_progress p ON v.id = p.video_id
         LEFT JOIN favorites fav ON v.id = fav.video_id
         WHERE v.is_available = 1 AND f.enabled = 1
+          AND (
+            v.mime_type LIKE 'video/%' 
+            OR LOWER(v.extension) IN ('.mp4', '.webm', '.ogg', '.ogv', '.mov', '.m4v', '.mkv', '.avi', '.3gp', '.ts', '.mpeg', '.mpg', '.wmv', '.flv', '.youtube', '.gdrive')
+          )
+          AND LOWER(v.extension) NOT IN ('.srt', '.vtt', '.sub', '.idx', '.ass', '.ssa', '.txt', '.nfo', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp3', '.wav', '.flac', '.aac', '.m4a', '.pdf', '.zip', '.rar', '.exe', '.json', '.xml', '.html')
       `;
       const params: any[] = [];
 
@@ -310,15 +315,19 @@ export function createApiRouter(): Router {
           break;
       }
 
-      const numLimit = Math.min(Math.max(parseInt(String(limit), 10) || 50, 1), 500);
+      const numLimit = limit !== undefined
+        ? Math.min(Math.max(parseInt(String(limit), 10) || 50, 1), 5000)
+        : 5000;
       const numOffset = Math.max(parseInt(String(offset), 10) || 0, 0);
 
       sql += ` LIMIT ${numLimit} OFFSET ${numOffset}`;
 
-      const videos = queryAll<VideoRecord>(sql, params).map(v => ({
-        ...v,
-        is_browser_playable: isNativeBrowserPlayable(v.extension)
-      }));
+      const videos = queryAll<VideoRecord>(sql, params)
+        .filter(v => isSupportedVideo(v.extension) || v.mime_type?.startsWith('video/'))
+        .map(v => ({
+          ...v,
+          is_browser_playable: isNativeBrowserPlayable(v.extension)
+        }));
 
       sendSuccess(res, videos);
     } catch (err: any) {
@@ -365,6 +374,9 @@ export function createApiRouter(): Router {
   });
 
   router.get('/videos/:id/stream', (req: Request, res: Response) => {
+    handleVideoStream(req, res);
+  });
+  router.get('/videos/:id/stream/:filename', (req: Request, res: Response) => {
     handleVideoStream(req, res);
   });
 
@@ -513,15 +525,22 @@ export function createApiRouter(): Router {
         LEFT JOIN playback_progress p ON v.id = p.video_id
         LEFT JOIN favorites fav ON v.id = fav.video_id
         WHERE v.is_available = 1 AND f.enabled = 1
+          AND (
+            v.mime_type LIKE 'video/%' 
+            OR LOWER(v.extension) IN ('.mp4', '.webm', '.ogg', '.ogv', '.mov', '.m4v', '.mkv', '.avi', '.3gp', '.ts', '.mpeg', '.mpg', '.wmv', '.flv', '.youtube', '.gdrive')
+          )
+          AND LOWER(v.extension) NOT IN ('.srt', '.vtt', '.sub', '.idx', '.ass', '.ssa', '.txt', '.nfo', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp3', '.wav', '.flac', '.aac', '.m4a', '.pdf', '.zip', '.rar', '.exe', '.json', '.xml', '.html')
           AND (v.title LIKE ? OR v.filename LIKE ? OR v.relative_path LIKE ? OR f.name LIKE ? OR v.extension LIKE ?)
         ORDER BY v.title ASC
         LIMIT 100
       `;
 
-      const results = queryAll<VideoRecord>(sql, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]).map(v => ({
-        ...v,
-        is_browser_playable: isNativeBrowserPlayable(v.extension)
-      }));
+      const results = queryAll<VideoRecord>(sql, [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm])
+        .filter(v => isSupportedVideo(v.extension) || v.mime_type?.startsWith('video/'))
+        .map(v => ({
+          ...v,
+          is_browser_playable: isNativeBrowserPlayable(v.extension)
+        }));
 
       sendSuccess(res, { query: q, count: results.length, videos: results });
     } catch (err: any) {
@@ -594,6 +613,11 @@ export function createApiRouter(): Router {
           COALESCE(SUM(size_bytes), 0) as total_bytes,
           COALESCE(SUM(duration_seconds), 0) as total_duration
         FROM videos WHERE is_available = 1
+          AND (
+            mime_type LIKE 'video/%' 
+            OR LOWER(extension) IN ('.mp4', '.webm', '.ogg', '.ogv', '.mov', '.m4v', '.mkv', '.avi', '.3gp', '.ts', '.mpeg', '.mpg', '.wmv', '.flv', '.youtube', '.gdrive')
+          )
+          AND LOWER(extension) NOT IN ('.srt', '.vtt', '.sub', '.idx', '.ass', '.ssa', '.txt', '.nfo', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp3', '.wav', '.flac', '.aac', '.m4a', '.pdf', '.zip', '.rar', '.exe', '.json', '.xml', '.html')
       `);
 
       const folderStats = queryOne<{ count: number; enabled_count: number }>(`

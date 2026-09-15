@@ -4,6 +4,11 @@ import { getDb, queryAll, queryOne, runQuery, FolderRecord, VideoRecord } from '
 import { isSupportedVideo, getMimeType, deriveTitleFromFilename } from './mimeTypes.js';
 import { scanYouTubePlaylist, scanDriveFolder } from './cloudScanner.js';
 import { scanHttpDirectory } from './httpScanner.js';
+import { extractVideoMetadata } from './metadataExtractor.js';
+
+// Minimum filters: videos must be at least 10MB in size and at least 60 seconds long
+const MIN_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MIN_DURATION_SECONDS = 60; // 1 minute
 
 export interface ScanStats {
   folderId?: number;
@@ -237,46 +242,62 @@ async function scanDirectoryRecursive(
         continue;
       }
 
-      stats.videosFound++;
-      activePaths.add(fullPath);
-
       try {
         const fileStat = await fs.stat(fullPath);
+        const sizeBytes = fileStat.size;
+
+        // Skip all videos that are less than size 10MB
+        if (sizeBytes < MIN_SIZE_BYTES) {
+          stats.skippedFiles++;
+          continue;
+        }
+
+        // Check video duration with ffprobe
+        const meta = await extractVideoMetadata(fullPath, 5000);
+
+        // Skip all videos that have duration less than 1 minute (60s)
+        if (meta.durationSeconds > 0 && meta.durationSeconds < MIN_DURATION_SECONDS) {
+          stats.skippedFiles++;
+          continue;
+        }
+
+        stats.videosFound++;
+        activePaths.add(fullPath);
+
         const relativePath = path.relative(rootFolderPath, fullPath);
         const ext = path.extname(entry.name).toLowerCase();
         const mimeType = getMimeType(entry.name);
         const title = deriveTitleFromFilename(entry.name);
         const modifiedAt = fileStat.mtime.toISOString();
         const createdAt = fileStat.birthtime.toISOString();
-        const sizeBytes = fileStat.size;
 
         // Check if video already exists in database
         const existing = queryOne<VideoRecord>(
-          'SELECT id, size_bytes, modified_at FROM videos WHERE absolute_path = ?',
+          'SELECT id, size_bytes, modified_at, duration_seconds FROM videos WHERE absolute_path = ?',
           [fullPath]
         );
 
         const now = new Date().toISOString();
 
         if (existing) {
-          // If size or modification time changed, update it
-          if (existing.size_bytes !== sizeBytes || existing.modified_at !== modifiedAt) {
-            runQuery(
-              `UPDATE videos 
-               SET size_bytes = ?, modified_at = ?, is_available = 1, updated_at_db = ? 
-               WHERE id = ?`,
-              [sizeBytes, modifiedAt, now, existing.id]
-            );
-            stats.updatedVideos++;
-          }
+          // If size, modification time, or duration metadata updated, save changes
+          runQuery(
+            `UPDATE videos 
+             SET size_bytes = ?, modified_at = ?, duration_seconds = COALESCE(?, duration_seconds),
+                 width = COALESCE(?, width), height = COALESCE(?, height), codec = COALESCE(?, codec),
+                 is_available = 1, updated_at_db = ? 
+             WHERE id = ?`,
+            [sizeBytes, modifiedAt, meta.durationSeconds || null, meta.width, meta.height, meta.codec, now, existing.id]
+          );
+          stats.updatedVideos++;
         } else {
           // Insert new video
           runQuery(
             `INSERT INTO videos (
               folder_id, absolute_path, relative_path, filename, title,
-              extension, mime_type, size_bytes, modified_at, created_at,
-              is_available, created_at_db, updated_at_db
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+              extension, mime_type, size_bytes, duration_seconds, width, height, codec,
+              modified_at, created_at, is_available, created_at_db, updated_at_db
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
             [
               folderId,
               fullPath,
@@ -286,6 +307,10 @@ async function scanDirectoryRecursive(
               ext,
               mimeType,
               sizeBytes,
+              meta.durationSeconds || 0,
+              meta.width,
+              meta.height,
+              meta.codec,
               modifiedAt,
               createdAt,
               now,

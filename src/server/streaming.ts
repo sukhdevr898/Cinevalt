@@ -53,8 +53,16 @@ export function handleVideoStream(req: Request, res: Response): void {
       return;
     }
 
+    let referer = '';
+    try {
+      referer = new URL(targetUrl).origin + '/';
+    } catch {
+      // ignore
+    }
+
     const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) CineVault/1.0'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      ...(referer ? { 'Referer': referer } : {})
     };
     if (req.headers.range) {
       headers['Range'] = req.headers.range;
@@ -62,9 +70,19 @@ export function handleVideoStream(req: Request, res: Response): void {
 
     fetch(targetUrl, {
       method: req.method === 'HEAD' ? 'HEAD' : 'GET',
-      headers
+      headers,
+      redirect: 'follow'
     })
       .then(async (remoteRes) => {
+        if (!remoteRes.ok && remoteRes.status !== 206) {
+          res.status(remoteRes.status).json({
+            success: false,
+            data: null,
+            error: { code: 'REMOTE_HTTP_ERROR', message: `Remote server responded with HTTP ${remoteRes.status}` }
+          });
+          return;
+        }
+
         res.status(remoteRes.status);
         const contentType = remoteRes.headers.get('content-type') || video.mime_type || 'video/mp4';
         res.setHeader('Content-Type', contentType);

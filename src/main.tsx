@@ -3,18 +3,29 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-// Safely handle aborted play() promises when media elements are paused or removed from DOM
+// Safely handle media play() promises and benign browser media errors
 if (typeof window !== 'undefined' && typeof HTMLMediaElement !== 'undefined') {
+  const isIgnorableMediaError = (err: any) => {
+    if (!err) return false;
+    const name = typeof err?.name === 'string' ? err.name : '';
+    const message = typeof err?.message === 'string' ? err.message : (typeof err === 'string' ? err : '');
+    return (
+      name === 'AbortError' ||
+      name === 'NotSupportedError' ||
+      name === 'NotAllowedError' ||
+      message.includes('interrupted') ||
+      message.includes('no supported source') ||
+      message.includes('play()') ||
+      message.includes('user didn\'t interact')
+    );
+  };
+
   const originalPlay = HTMLMediaElement.prototype.play;
   HTMLMediaElement.prototype.play = function () {
     const playPromise = originalPlay.apply(this);
     if (playPromise && typeof playPromise.catch === 'function') {
       return playPromise.catch((err: any) => {
-        // AbortError is expected when component unmounts or pause is called during playback startup
-        if (
-          err?.name === 'AbortError' ||
-          (typeof err?.message === 'string' && err.message.includes('interrupted'))
-        ) {
+        if (isIgnorableMediaError(err)) {
           return;
         }
         throw err;
@@ -24,10 +35,7 @@ if (typeof window !== 'undefined' && typeof HTMLMediaElement !== 'undefined') {
   };
 
   window.addEventListener('unhandledrejection', (event) => {
-    if (
-      event.reason?.name === 'AbortError' ||
-      (typeof event.reason?.message === 'string' && event.reason.message.includes('interrupted'))
-    ) {
+    if (isIgnorableMediaError(event.reason)) {
       event.preventDefault();
     }
   });

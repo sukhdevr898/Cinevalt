@@ -1,5 +1,9 @@
 import { getDb, runQuery, queryOne, queryAll, VideoRecord } from './database.js';
 import { deriveTitleFromFilename, getMimeType, SUPPORTED_EXTENSIONS } from './mimeTypes.js';
+import { extractRemoteVideoDuration } from './metadataExtractor.js';
+
+const MIN_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MIN_DURATION_SECONDS = 60; // 1 minute
 
 interface DiscoveredHttpVideo {
   url: string;
@@ -7,6 +11,7 @@ interface DiscoveredHttpVideo {
   title: string;
   extension: string;
   sizeBytes: number;
+  durationSeconds: number;
   relativePath: string;
 }
 
@@ -103,17 +108,31 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
       
       // If the URL itself directly returned a video stream or binary file
       if (contentType.startsWith('video/')) {
+        const len = res.headers.get('content-length');
+        const sizeBytes = len ? parseInt(len, 10) || 0 : 0;
+
+        // Skip if size less than 10MB
+        if (sizeBytes > 0 && sizeBytes < MIN_SIZE_BYTES) {
+          break;
+        }
+
+        const durationSeconds = await extractRemoteVideoDuration(current.url, sizeBytes);
+        // Skip if duration less than 1 minute (60s)
+        if (durationSeconds > 0 && durationSeconds < MIN_DURATION_SECONDS) {
+          break;
+        }
+
         const pathname = new URL(current.url).pathname;
         const filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || 'video.mp4');
         const ext = '.' + (filename.split('.').pop() || 'mp4').toLowerCase();
         const title = deriveTitleFromFilename(filename);
-        const len = res.headers.get('content-length');
         discoveredVideos.push({
           url: current.url,
           filename,
           title,
           extension: ext,
-          sizeBytes: len ? parseInt(len, 10) || 0 : 0,
+          sizeBytes,
+          durationSeconds,
           relativePath: filename
         });
         break;
@@ -177,6 +196,19 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
             sizeBytes = await getRemoteFileSize(resolvedUrl);
           }
 
+          // Skip all videos that are less than 10MB
+          if (sizeBytes > 0 && sizeBytes < MIN_SIZE_BYTES) {
+            continue;
+          }
+
+          // Check video duration (range check on moov/mvhd)
+          const durationSeconds = await extractRemoteVideoDuration(resolvedUrl, sizeBytes);
+
+          // Skip all videos with duration less than 1 minute (60s)
+          if (durationSeconds > 0 && durationSeconds < MIN_DURATION_SECONDS) {
+            continue;
+          }
+
           const relative = pathname.replace(rootBasePath, '').replace(/^\//, '') || filename;
           const title = deriveTitleFromFilename(filename);
 
@@ -186,6 +218,7 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
             title,
             extension: ext,
             sizeBytes,
+            durationSeconds,
             relativePath: decodeURIComponent(relative)
           });
         } else if (
@@ -216,8 +249,8 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
 
     if (existing) {
       runQuery(
-        'UPDATE videos SET title = ?, size_bytes = ?, is_available = 1, updated_at_db = ? WHERE id = ?',
-        [item.title, item.sizeBytes, now, existing.id]
+        'UPDATE videos SET title = ?, size_bytes = ?, duration_seconds = CASE WHEN ? > 0 THEN ? ELSE duration_seconds END, is_available = 1, updated_at_db = ? WHERE id = ?',
+        [item.title, item.sizeBytes, item.durationSeconds, item.durationSeconds, now, existing.id]
       );
       updatedVideos++;
     } else {
@@ -225,7 +258,7 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
         `INSERT INTO videos (
           folder_id, source_type, remote_url, thumbnail_url, absolute_path, relative_path, filename,
           title, extension, mime_type, size_bytes, duration_seconds, modified_at, created_at, created_at_db, updated_at_db, is_available
-        ) VALUES (?, 'http', ?, NULL, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 1)`,
+        ) VALUES (?, 'http', ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [
           folderId,
           item.url,
@@ -236,6 +269,7 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
           item.extension,
           mimeType,
           item.sizeBytes,
+          item.durationSeconds || 0,
           now,
           now,
           now,

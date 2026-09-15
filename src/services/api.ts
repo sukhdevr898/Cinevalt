@@ -177,6 +177,6 @@ export const api = {
 
   getVideoStreamUrl(id: number, extension?: string): string {
     const ext = extension ? (extension.startsWith('.') ? extension : `.${extension}`) : '.mp4';
-    return `/api/videos/${id}/stream?ext=${encodeURIComponent(ext)}`;
+    return `/api/videos/${id}/stream/video${ext}`;
   }
 };

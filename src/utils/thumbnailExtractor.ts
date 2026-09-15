@@ -58,7 +58,13 @@ function extractFrameFromVideo(video: Video): Promise<string | null> {
     }
 
     // 3. For local videos, capture frame via HTML5 video + canvas
-    const streamUrl = api.getVideoStreamUrl(video.id);
+    // Remote videos (http/gdrive) often lack CORS headers or are large streams, so skip canvas extraction
+    if (video.source_type !== 'local') {
+      failedVideoIds.add(video.id);
+      return resolve(null);
+    }
+
+    const streamUrl = api.getVideoStreamUrl(video.id, video.extension);
 
     const videoEl = document.createElement('video');
     videoEl.crossOrigin = 'anonymous';
@@ -78,7 +84,13 @@ function extractFrameFromVideo(video: Video): Promise<string | null> {
       videoEl.onloadedmetadata = null;
       videoEl.onseeked = null;
       videoEl.onerror = null;
-      videoEl.src = '';
+      try {
+        videoEl.pause();
+      } catch {
+        // ignore
+      }
+      videoEl.removeAttribute('src');
+      videoEl.srcObject = null;
       videoEl.remove();
     };
 

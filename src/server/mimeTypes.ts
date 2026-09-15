@@ -17,6 +17,16 @@ export const SUPPORTED_EXTENSIONS = new Set([
   '.flv'
 ]);
 
+export const EXCLUDED_NON_VIDEO_EXTENSIONS = new Set([
+  '.srt', '.vtt', '.sub', '.idx', '.ass', '.ssa',
+  '.txt', '.nfo', '.pdf', '.doc', '.docx', '.rtf', '.log', '.md',
+  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff',
+  '.mp3', '.wav', '.flac', '.aac', '.m4a', '.wma', '.opus', '.mid', '.midi',
+  '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso', '.exe', '.bin', '.dmg',
+  '.json', '.xml', '.html', '.htm', '.css', '.js', '.ts', '.py', '.sh',
+  '.torrent', '.part', '.crdownload', '.tmp'
+]);
+
 export const BROWSER_NATIVE_EXTENSIONS = new Set([
   '.mp4',
   '.webm',
@@ -52,7 +62,10 @@ export function isSupportedVideo(filePath: string): boolean {
   const ext = (filePath.startsWith('.') && !filePath.includes('/') && !filePath.includes('\\') && filePath.indexOf('.', 1) === -1)
     ? filePath.toLowerCase()
     : path.extname(filePath).toLowerCase();
-  return SUPPORTED_EXTENSIONS.has(ext);
+  if (EXCLUDED_NON_VIDEO_EXTENSIONS.has(ext)) {
+    return false;
+  }
+  return SUPPORTED_EXTENSIONS.has(ext) || ext === '.youtube' || ext === '.gdrive';
 }
 
 export function isNativeBrowserPlayable(filePath: string): boolean {
