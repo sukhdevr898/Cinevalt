@@ -11,7 +11,7 @@ import {
   VideoRecord,
   PlaybackProgressRecord
 } from './database.js';
-import { scanFolder, scanAllFolders, getScanState, getScanProgress } from './scanner.js';
+import { scanFolder, scanAllFolders, getScanState, getScanProgress, resetScanProgress } from './scanner.js';
 import { handleVideoStream, isPathContained } from './streaming.js';
 import { createSampleMediaIfEmpty } from './sampleMedia.js';
 import { isNativeBrowserPlayable, isSupportedVideo } from './mimeTypes.js';
@@ -729,17 +729,19 @@ export function createApiRouter(): Router {
   router.post('/library/reset', async (req: Request, res: Response) => {
     try {
       const { confirm } = req.body;
-      if (confirm !== 'RESET_CINEVAULT_LIBRARY') {
-        return sendError(res, 'CONFIRMATION_REQUIRED', 'Type "RESET_CINEVAULT_LIBRARY" to confirm library reset.');
+      if (confirm !== 'RESET' && confirm !== 'RESET_CINEVAULT_LIBRARY') {
+        return sendError(res, 'CONFIRMATION_REQUIRED', 'Type "RESET" to confirm library reset.');
       }
 
       await getDb();
       runQuery('DELETE FROM favorites');
       runQuery('DELETE FROM playback_progress');
       runQuery('DELETE FROM videos');
-      runQuery('UPDATE folders SET video_count = 0, scan_status = "idle"');
+      runQuery('DELETE FROM folders');
 
-      sendSuccess(res, { message: 'Library database has been reset. Local files on disk were not modified.' });
+      resetScanProgress();
+
+      sendSuccess(res, { message: 'Library database and all directories have been reset. Local files on disk were not modified.' });
     } catch (err: any) {
       sendError(res, 'RESET_ERROR', err.message, 500);
     }

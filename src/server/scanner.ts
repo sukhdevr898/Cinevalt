@@ -67,6 +67,29 @@ let scanProgress: ScanProgress = {
   completedAt: null
 };
 
+export function resetScanProgress() {
+  scanProgress = {
+    isScanning: false,
+    folderId: null,
+    folderName: null,
+    folderPath: null,
+    folderType: null,
+    status: 'idle',
+    progressPercent: 0,
+    message: '',
+    currentFile: null,
+    filesChecked: 0,
+    videosFound: 0,
+    newVideos: 0,
+    updatedVideos: 0,
+    removedVideos: 0,
+    errors: [],
+    startTime: null,
+    elapsedSeconds: 0,
+    completedAt: null
+  };
+}
+
 export function getScanProgress(): ScanProgress {
   if (scanProgress.isScanning && scanProgress.startTime) {
     scanProgress.elapsedSeconds = Math.round((Date.now() - scanProgress.startTime) / 1000);
@@ -85,33 +108,28 @@ export function getScanState() {
   return getScanProgress();
 }
 
-let activeScanPromise: Promise<ScanStats> | null = null;
+let scanQueuePromise: Promise<any> = Promise.resolve();
 
-export async function scanFolder(folderId: number): Promise<ScanStats> {
-  // If this exact folder is already currently being scanned, return the active scan promise
-  if (activeScanPromise) {
-    if (scanProgress.isScanning && scanProgress.folderId === folderId) {
-      return activeScanPromise;
-    }
-    // If another folder or library scan is running, await its completion before scanning this folder
-    try {
-      await activeScanPromise;
-    } catch {
-      // Ignore previous errors to allow this folder scan to proceed
-    }
+export function scanFolder(folderId: number): Promise<ScanStats> {
+  if (!scanProgress.isScanning) {
+    updateScanProgress({
+      isScanning: true,
+      status: 'scanning',
+      message: 'Scan queued...',
+      folderId,
+      progressPercent: 0
+    });
   }
 
-  const runPromise = (async () => {
+  const runPromise = scanQueuePromise.then(async () => {
     try {
       return await executeScanFolder(folderId);
     } finally {
-      if (activeScanPromise === runPromise) {
-        activeScanPromise = null;
-      }
+      // nothing needed since queue handles it
     }
-  })();
+  });
 
-  activeScanPromise = runPromise;
+  scanQueuePromise = runPromise.catch(() => {});
   return runPromise;
 }
 
@@ -332,29 +350,26 @@ async function executeScanFolder(folderId: number): Promise<ScanStats> {
   return stats;
 }
 
-export async function scanAllFolders(): Promise<ScanStats> {
-  if (activeScanPromise) {
-    if (scanProgress.isScanning && scanProgress.folderId === null) {
-      return activeScanPromise;
-    }
-    try {
-      await activeScanPromise;
-    } catch {
-      // Ignore previous errors
-    }
+export function scanAllFolders(): Promise<ScanStats> {
+  if (!scanProgress.isScanning) {
+    updateScanProgress({
+      isScanning: true,
+      status: 'scanning',
+      message: 'Library scan queued...',
+      folderId: null,
+      progressPercent: 0
+    });
   }
 
-  const runPromise = (async () => {
+  const runPromise = scanQueuePromise.then(async () => {
     try {
       return await executeScanAllFolders();
     } finally {
-      if (activeScanPromise === runPromise) {
-        activeScanPromise = null;
-      }
+      // handled by queue
     }
-  })();
+  });
 
-  activeScanPromise = runPromise;
+  scanQueuePromise = runPromise.catch(() => {});
   return runPromise;
 }
 
@@ -408,9 +423,8 @@ async function executeScanAllFolders(): Promise<ScanStats> {
         progressPercent: Math.min(90, Math.round(((idx + 0.1) / folders.length) * 85) + 5)
       });
 
-      // Temporarily mark isScanning false so scanFolder can run for this specific folder
       scanProgress.isScanning = false;
-      const stats = await scanFolder(folder.id);
+      const stats = await executeScanFolder(folder.id);
       scanProgress.isScanning = true;
 
       combinedStats.totalFolders += stats.totalFolders;
@@ -507,18 +521,40 @@ async function scanDirectoryRecursive(
           continue;
         }
 
-        updateScanProgress({
-          message: `Inspecting video file: "${entry.name}"...`,
-          currentFile: entry.name
-        });
+        const modifiedAt = fileStat.mtime.toISOString();
+        const createdAt = fileStat.birthtime.toISOString();
 
-        // Check video duration with ffprobe
-        const meta = await extractVideoMetadata(fullPath, 5000);
+        // Check if video already exists in database and hasn't been modified
+        const existing = queryOne<VideoRecord>(
+          'SELECT id, size_bytes, modified_at, duration_seconds, width, height, codec FROM videos WHERE absolute_path = ?',
+          [fullPath]
+        );
 
-        // Skip all videos that have duration less than 1 minute (60s)
-        if (meta.durationSeconds > 0 && meta.durationSeconds < MIN_DURATION_SECONDS) {
-          stats.skippedFiles++;
-          continue;
+        let meta = { durationSeconds: 0, width: null as number | null, height: null as number | null, codec: null as string | null };
+        let needsFfprobe = true;
+
+        if (existing && existing.size_bytes === sizeBytes && existing.modified_at === modifiedAt) {
+          needsFfprobe = false;
+          meta.durationSeconds = existing.duration_seconds;
+          meta.width = existing.width;
+          meta.height = existing.height;
+          meta.codec = existing.codec;
+        }
+
+        if (needsFfprobe) {
+          updateScanProgress({
+            message: `Inspecting video file: "${entry.name}"...`,
+            currentFile: entry.name
+          });
+
+          // Check video duration with ffprobe
+          meta = await extractVideoMetadata(fullPath, 5000);
+
+          // Skip all videos that have duration less than 1 minute (60s)
+          if (meta.durationSeconds > 0 && meta.durationSeconds < MIN_DURATION_SECONDS) {
+            stats.skippedFiles++;
+            continue;
+          }
         }
 
         stats.videosFound++;
@@ -528,20 +564,12 @@ async function scanDirectoryRecursive(
         const ext = path.extname(entry.name).toLowerCase();
         const mimeType = getMimeType(entry.name);
         const title = deriveTitleFromFilename(entry.name);
-        const modifiedAt = fileStat.mtime.toISOString();
-        const createdAt = fileStat.birthtime.toISOString();
 
         updateScanProgress({
           message: `Indexed video: "${title}" (${stats.videosFound} found)`,
           currentFile: entry.name,
           videosFound: stats.videosFound
         });
-
-        // Check if video already exists in database
-        const existing = queryOne<VideoRecord>(
-          'SELECT id, size_bytes, modified_at, duration_seconds FROM videos WHERE absolute_path = ?',
-          [fullPath]
-        );
 
         const now = new Date().toISOString();
 

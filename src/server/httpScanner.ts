@@ -90,8 +90,8 @@ export async function scanHttpDirectory(
   const visitedUrls = new Set<string>();
   const discoveredVideos: DiscoveredHttpVideo[] = [];
   const queue: { url: string; depth: number }[] = [{ url: normalizedRoot, depth: 0 }];
-  const MAX_DEPTH = 3;
-  const MAX_VIDEOS = 500;
+  const MAX_DEPTH = 10;
+  const MAX_VIDEOS = 500000;
 
   while (queue.length > 0 && discoveredVideos.length < MAX_VIDEOS) {
     const current = queue.shift()!;
@@ -206,37 +206,52 @@ export async function scanHttpDirectory(
 
         // Check if this link points to a supported video
         if (SUPPORTED_EXTENSIONS.has(ext)) {
-          // Look for file size in nearby HTML (Apache / Nginx table or pre row)
           let sizeBytes = 0;
-          const matchIndex = match.index;
-          const surroundingHtml = html.substring(matchIndex, matchIndex + 300);
-          const sizeMatch = surroundingHtml.match(/\b([0-9.]+)\s*([KMGT]?B?)\b/i);
-          if (sizeMatch) {
-            sizeBytes = parseHtmlFileSize(sizeMatch[0]);
-          }
+          let durationSeconds = 0;
+          let isNew = true;
 
-          // If size not detected from HTML, fetch via fast HEAD request
-          if (sizeBytes === 0) {
-            sizeBytes = await getRemoteFileSize(resolvedUrl);
-          }
+          // Check if video already exists in database to skip remote HEAD/range requests
+          const existing = queryOne<VideoRecord>(
+            'SELECT id, size_bytes, duration_seconds FROM videos WHERE absolute_path = ? AND folder_id = ?',
+            [resolvedUrl, folderId]
+          );
 
-          // Skip all videos that are less than 10MB
-          if (sizeBytes > 0 && sizeBytes < MIN_SIZE_BYTES) {
-            continue;
-          }
+          if (existing) {
+            isNew = false;
+            sizeBytes = existing.size_bytes;
+            durationSeconds = existing.duration_seconds;
+          } else {
+            // Look for file size in nearby HTML (Apache / Nginx table or pre row)
+            const matchIndex = match.index;
+            const surroundingHtml = html.substring(matchIndex, matchIndex + 300);
+            const sizeMatch = surroundingHtml.match(/\b([0-9.]+)\s*([KMGT]?B?)\b/i);
+            if (sizeMatch) {
+              sizeBytes = parseHtmlFileSize(sizeMatch[0]);
+            }
 
-          onProgress?.({
-            message: `Inspecting remote video: "${filename}"...`,
-            currentFile: filename,
-            videosFound: discoveredVideos.length
-          });
+            // If size not detected from HTML, fetch via fast HEAD request
+            if (sizeBytes === 0) {
+              sizeBytes = await getRemoteFileSize(resolvedUrl);
+            }
 
-          // Check video duration (range check on moov/mvhd)
-          const durationSeconds = await extractRemoteVideoDuration(resolvedUrl, sizeBytes);
+            // Skip all videos that are less than 10MB
+            if (sizeBytes > 0 && sizeBytes < MIN_SIZE_BYTES) {
+              continue;
+            }
 
-          // Skip all videos with duration less than 1 minute (60s)
-          if (durationSeconds > 0 && durationSeconds < MIN_DURATION_SECONDS) {
-            continue;
+            onProgress?.({
+              message: `Inspecting remote video: "${filename}"...`,
+              currentFile: filename,
+              videosFound: discoveredVideos.length
+            });
+
+            // Check video duration (range check on moov/mvhd)
+            durationSeconds = await extractRemoteVideoDuration(resolvedUrl, sizeBytes);
+
+            // Skip all videos with duration less than 1 minute (60s)
+            if (durationSeconds > 0 && durationSeconds < MIN_DURATION_SECONDS) {
+              continue;
+            }
           }
 
           const relative = pathname.replace(rootBasePath, '').replace(/^\//, '') || filename;
