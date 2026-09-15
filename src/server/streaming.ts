@@ -151,6 +151,9 @@ export function handleVideoStream(req: Request, res: Response): void {
   // Set default streaming headers
   res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader('Cache-Control', 'no-cache, private');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Range, Accept-Ranges, Content-Range');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
 
   if (req.method === 'HEAD') {
     res.setHeader('Content-Type', mimeType);
@@ -165,9 +168,8 @@ export function handleVideoStream(req: Request, res: Response): void {
     const start = parseInt(parts[0], 10);
     const endStr = parts[1];
     
-    // Default chunk size ~2MB for smooth responsive seeking and buffering
-    const CHUNK_SIZE = 2 * 1024 * 1024;
-    let end = endStr ? parseInt(endStr, 10) : Math.min(start + CHUNK_SIZE - 1, fileSize - 1);
+    // If end byte not specified, stream to the end of the file (browser manages TCP flow control)
+    let end = endStr ? parseInt(endStr, 10) : fileSize - 1;
 
     // Range boundary validation
     if (isNaN(start) || start < 0 || start >= fileSize) {
@@ -180,7 +182,7 @@ export function handleVideoStream(req: Request, res: Response): void {
       return;
     }
 
-    if (end >= fileSize) {
+    if (isNaN(end) || end >= fileSize) {
       end = fileSize - 1;
     }
 

@@ -48,6 +48,12 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const controlsTimerRef = useRef<NodeJS.Timeout | null>(null);
   const seekbarRef = useRef<HTMLDivElement | null>(null);
+  const isSeekingRef = useRef(false);
+  const hasResumedRef = useRef(false);
+  const userPausedRef = useRef(false);
+  const progressRef = useRef({ currentTime: 0, duration: video.duration_seconds || 0 });
+  const videoIdRef = useRef(video.id);
+  videoIdRef.current = video.id;
 
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -90,6 +96,22 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
       ? video.position_seconds
       : null
   );
+
+  // Reset state when active video changes
+  useEffect(() => {
+    hasResumedRef.current = false;
+    userPausedRef.current = false;
+    setIsPlaying(true);
+    setIsLoading(true);
+    setCurrentTime(0);
+    setDuration(video.duration_seconds || 0);
+    progressRef.current = { currentTime: 0, duration: video.duration_seconds || 0 };
+    setResumePrompt(
+      video.position_seconds && video.position_seconds > 10 && !video.completed
+        ? video.position_seconds
+        : null
+    );
+  }, [video.id, video.duration_seconds, video.position_seconds, video.completed]);
 
   const { thumbnail: autoThumbnail } = useVideoThumbnail(video);
   const activeThumbnail = video.thumbnail_url || autoThumbnail;
@@ -134,12 +156,15 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
     [video.id]
   );
 
-  // Play / Pause toggle
-  const togglePlay = () => {
-    const nextState = !isPlaying;
-    setIsPlaying(nextState);
-    showActionToast(nextState ? 'Playing' : 'Paused');
-  };
+  // Play / Pause toggle - updates state declaratively for ReactPlayer
+  const togglePlay = useCallback(() => {
+    setIsPlaying((prev) => {
+      const next = !prev;
+      userPausedRef.current = !next;
+      showActionToast(next ? 'Playing' : 'Paused');
+      return next;
+    });
+  }, []);
 
   // Safe media element resolver across HTMLVideoElement, ReactPlayer v3, or custom web components
   const getMediaElement = useCallback((): any => {
@@ -157,6 +182,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
   // Graceful close & pause helper to prevent play() interruption
   const handleClose = useCallback(() => {
+    userPausedRef.current = true;
     setIsPlaying(false);
     const media = getMediaElement();
     if (media && typeof media.pause === 'function') {
@@ -166,14 +192,16 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
         // ignore
       }
     }
-    const current = typeof media?.currentTime === 'number' ? media.currentTime : currentTime;
-    const dur = typeof media?.duration === 'number' && !isNaN(media.duration) && media.duration > 0 ? media.duration : duration;
-    saveProgress(current, dur);
+    const { currentTime: cur, duration: dur } = progressRef.current;
+    if (cur > 0 && dur > 0) {
+      saveProgress(cur, dur);
+    }
     onClose();
-  }, [getMediaElement, currentTime, duration, saveProgress, onClose]);
+  }, [getMediaElement, saveProgress, onClose]);
 
   // Seek helper
   const seekTo = (seconds: number) => {
+    isSeekingRef.current = true;
     const target = Math.max(0, Math.min(seconds, duration || 100));
     const media = getMediaElement();
     if (media) {
@@ -193,6 +221,10 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
       }
     }
     setCurrentTime(target);
+    progressRef.current.currentTime = target;
+    setTimeout(() => {
+      isSeekingRef.current = false;
+    }, 400);
   };
 
   // Step seek (-10s / +10s)
@@ -373,23 +405,23 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, duration, handleClose, showShortcutsModal, fitMode]);
+  }, [duration, handleClose, showShortcutsModal, fitMode, togglePlay]);
 
   // Periodic progress saving every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       if (isPlaying) {
-        const media = getMediaElement();
-        const current = typeof media?.currentTime === 'number' ? media.currentTime : currentTime;
-        const dur = typeof media?.duration === 'number' && !isNaN(media.duration) && media.duration > 0 ? media.duration : duration;
-        saveProgress(current, dur);
+        const { currentTime: cur, duration: dur } = progressRef.current;
+        if (cur > 0 && dur > 0) {
+          saveProgress(cur, dur);
+        }
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [saveProgress, isPlaying, duration, currentTime, getMediaElement]);
+  }, [saveProgress, isPlaying]);
 
-  // Save progress and pause on unmount / close
+  // Save progress and pause strictly on unmount / modal close
   useEffect(() => {
     return () => {
       if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
@@ -402,11 +434,13 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           // ignore
         }
       }
-      const current = typeof media?.currentTime === 'number' ? media.currentTime : currentTime;
-      const dur = typeof media?.duration === 'number' && !isNaN(media.duration) && media.duration > 0 ? media.duration : duration;
-      saveProgress(current, dur);
+      const { currentTime: cur, duration: dur } = progressRef.current;
+      const targetId = videoIdRef.current;
+      if (cur > 0 && dur > 0 && targetId) {
+        api.updateProgress(targetId, cur, dur, cur >= dur * 0.9).catch(() => {});
+      }
     };
-  }, [saveProgress, duration, currentTime, getMediaElement]);
+  }, [getMediaElement]);
 
   // Calculate progress percentage
   const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
@@ -439,29 +473,29 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
       {/* Top Header Bar - Responsive Title & Controls */}
       <div
-        className={`absolute top-0 left-0 right-0 z-30 flex items-center justify-between p-4 sm:p-6 bg-gradient-to-b from-black/90 via-black/50 to-transparent transition-all duration-300 ${
+        className={`absolute top-0 left-0 right-0 z-30 flex items-center justify-between p-3 sm:p-6 bg-gradient-to-b from-black/90 via-black/50 to-transparent transition-all duration-300 gap-2 ${
           showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
         }`}
       >
-        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 max-w-[75%] sm:max-w-[85%]">
+        <div className="flex items-center space-x-2.5 sm:space-x-4 min-w-0 flex-1">
           <button
             onClick={handleClose}
-            className="shrink-0 rounded-full bg-black/60 p-2.5 text-white/90 backdrop-blur-xl border border-white/10 transition-all hover:bg-white/20 hover:text-white hover:scale-105 active:scale-95"
+            className="shrink-0 rounded-full bg-black/60 p-2 sm:p-2.5 text-white/90 backdrop-blur-xl border border-white/10 transition-all hover:bg-white/20 hover:text-white hover:scale-105 active:scale-95"
             aria-label="Back to Library"
           >
-            <ArrowLeft className="h-5 w-5 sm:h-6 sm:w-6" />
+            <ArrowLeft className="h-4 w-4 sm:h-6 sm:w-6" />
           </button>
 
           {/* Screen-Adjusting Title & Metadata */}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2
-              className="text-sm sm:text-base md:text-lg font-extrabold text-white leading-tight truncate tracking-tight font-['Outfit']"
+              className="text-xs sm:text-base md:text-lg font-extrabold text-white leading-tight truncate tracking-tight font-['Outfit']"
               title={video.title}
             >
               {video.title}
             </h2>
-            <div className="flex items-center space-x-2 mt-0.5 text-[10px] sm:text-xs text-[#A1A1AA] truncate">
-              <span className="truncate max-w-[150px] sm:max-w-[240px]">{video.folder_name}</span>
+            <div className="flex items-center space-x-1.5 sm:space-x-2 mt-0.5 text-[9px] sm:text-xs text-[#A1A1AA] truncate">
+              <span className="truncate max-w-[110px] sm:max-w-[240px]">{video.folder_name}</span>
               <span>•</span>
               <span className="uppercase font-semibold text-white/70">{video.extension.replace('.', '')}</span>
               <span>•</span>
@@ -471,23 +505,23 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
         </div>
 
         {/* Quick Top Controls: Ambient Glow, Shortcuts Help */}
-        <div className="flex items-center space-x-2 shrink-0">
+        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
           <button
             onClick={toggleAmbientGlow}
-            className={`rounded-xl border p-2 sm:px-3 sm:py-1.5 text-xs font-semibold backdrop-blur-xl transition-all flex items-center space-x-1.5 ${
+            className={`rounded-xl border p-1.5 sm:px-3 sm:py-1.5 text-xs font-semibold backdrop-blur-xl transition-all flex items-center space-x-1 sm:space-x-1.5 shrink-0 ${
               ambientGlow
                 ? 'border-indigo-500/40 bg-indigo-500/20 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.3)]'
                 : 'border-white/10 bg-black/50 text-white/60 hover:text-white hover:bg-white/10'
             }`}
             title="Toggle Ambient Glow Cinema Lighting"
           >
-            <Sparkles className="h-4 w-4" />
-            <span className="hidden md:inline">Ambient</span>
+            <Sparkles className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline">Ambient</span>
           </button>
 
           <button
             onClick={() => setShowShortcutsModal(true)}
-            className="rounded-xl border border-white/10 bg-black/50 p-2 text-white/70 backdrop-blur-xl hover:bg-white/10 hover:text-white transition-all"
+            className="hidden sm:inline-flex rounded-xl border border-white/10 bg-black/50 p-2 text-white/70 backdrop-blur-xl hover:bg-white/10 hover:text-white transition-all shrink-0"
             title="Keyboard Shortcuts (?)"
           >
             <Keyboard className="h-4 w-4" />
@@ -538,29 +572,51 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           className={`react-player-wrapper ${
             fitMode === 'cover' ? '[&_video]:object-cover' : '[&_video]:object-contain'
           }`}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
+          onPlay={() => {
+            userPausedRef.current = false;
+            setIsPlaying(true);
+            setIsLoading(false);
+          }}
+          onPause={() => {
+            // Only update isPlaying if user explicitly paused or via PiP mode
+            if (userPausedRef.current || document.pictureInPictureElement) {
+              setIsPlaying(false);
+            }
+          }}
           onWaiting={() => setIsLoading(true)}
-          onPlaying={() => setIsLoading(false)}
+          onPlaying={() => {
+            setIsLoading(false);
+            if (!userPausedRef.current) {
+              setIsPlaying(true);
+            }
+          }}
           onTimeUpdate={(e: any) => {
             const current = e.currentTarget?.currentTime || 0;
             setCurrentTime(current);
+            progressRef.current.currentTime = current;
             if (!duration && e.currentTarget?.duration > 0) {
-              setDuration(e.currentTarget.duration);
+              const dur = e.currentTarget.duration;
+              setDuration(dur);
+              progressRef.current.duration = dur;
             }
           }}
           onDurationChange={(e: any) => {
             const dur = e.currentTarget?.duration || 0;
             setDuration(dur);
+            progressRef.current.duration = dur;
             setIsLoading(false);
-            if (video.position_seconds && video.position_seconds > 10 && !video.completed && resumePrompt === null) {
+            if (!hasResumedRef.current && video.position_seconds && video.position_seconds > 10 && !video.completed && resumePrompt === null) {
+              hasResumedRef.current = true;
               seekTo(video.position_seconds);
             }
           }}
           onEnded={() => {
+            userPausedRef.current = true;
             setIsPlaying(false);
-            if (playerRef.current) {
-              saveProgress(duration, duration);
+            setIsLoading(false);
+            const { duration: dur } = progressRef.current;
+            if (dur > 0) {
+              api.updateProgress(video.id, dur, dur, true).catch(() => {});
             }
             if (autoplayNext && nextVideo) {
               onSelectVideo(nextVideo);
@@ -588,17 +644,27 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           </div>
         )}
 
-        {/* Invisible overlay to catch clicks for play/pause toggling */}
-        <div className="absolute inset-0 z-10 cursor-pointer" onClick={togglePlay} />
+        {/* Click overlay to catch clicks for play/pause toggling */}
+        <div
+          className="absolute inset-0 z-10 cursor-pointer"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              togglePlay();
+            }
+          }}
+        />
 
-        {/* Center Big Play / Pause Overlay Icon (Visible when paused or controls shown) */}
+        {/* Center Big Play / Pause Overlay Icon (Visible when paused and not loading) */}
         {!isPlaying && !isLoading && !hasError && (
           <button
-            onClick={togglePlay}
-            className="absolute z-20 flex h-20 w-20 sm:h-24 sm:w-24 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md border border-white/10 shadow-2xl transition-transform hover:scale-110 active:scale-95"
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePlay();
+            }}
+            className="absolute z-20 flex h-16 w-16 sm:h-24 sm:w-24 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md border border-white/10 shadow-2xl transition-transform hover:scale-110 active:scale-95"
             aria-label="Play Video"
           >
-            <Play className="h-10 w-10 sm:h-12 sm:w-12 fill-current translate-x-1 text-white" />
+            <Play className="h-8 w-8 sm:h-12 sm:w-12 fill-current translate-x-1 text-white" />
           </button>
         )}
 
@@ -643,7 +709,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
       {/* Bottom Control Bar */}
       <div
-        className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-4 sm:px-6 pb-6 pt-16 transition-all duration-300 ${
+        className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-3 sm:px-6 pb-4 sm:pb-6 pt-12 transition-all duration-300 w-full max-w-full overflow-hidden ${
           showControls ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
         }`}
       >
@@ -652,7 +718,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           ref={seekbarRef}
           onMouseMove={handleSeekbarMouseMove}
           onMouseLeave={handleSeekbarMouseLeave}
-          className="relative mb-4 flex items-center group cursor-pointer py-2"
+          className="relative mb-3 sm:mb-4 flex items-center group cursor-pointer py-2 w-full"
           onClick={(e) => {
             if (!seekbarRef.current || !duration) return;
             const rect = seekbarRef.current.getBoundingClientRect();
@@ -664,8 +730,8 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           {/* Hover Timestamp Badge */}
           {hoverTime !== null && (
             <div
-              className="absolute -top-7 -translate-x-1/2 rounded-md bg-indigo-600 px-2 py-0.5 text-[11px] font-bold text-white shadow-lg pointer-events-none"
-              style={{ left: `${hoverPositionRatio * 100}%` }}
+              className="absolute -top-7 -translate-x-1/2 rounded-md bg-indigo-600 px-2 py-0.5 text-[11px] font-bold text-white shadow-lg pointer-events-none whitespace-nowrap"
+              style={{ left: `${Math.max(5, Math.min(95, hoverPositionRatio * 100))}%` }}
             >
               {formatTimeCode(hoverTime)}
             </div>
@@ -688,44 +754,44 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
         </div>
 
         {/* Main Controls Row */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-1.5 sm:gap-4 w-full min-w-0">
           {/* Left Controls: Prev, Play, Next, Seek Steps, Volume */}
-          <div className="flex items-center space-x-2 sm:space-x-4">
+          <div className="flex items-center space-x-1 sm:space-x-3 min-w-0 flex-1 sm:flex-initial">
             <button
               onClick={() => prevVideo && onSelectVideo(prevVideo)}
               disabled={!prevVideo}
-              className="rounded-full p-2 text-white/80 transition-all hover:bg-white/10 hover:text-white disabled:opacity-20 active:scale-95"
+              className="rounded-full p-1.5 sm:p-2 text-white/80 transition-all hover:bg-white/10 hover:text-white disabled:opacity-20 active:scale-95 shrink-0"
               title="Previous Video"
               aria-label="Previous Video"
             >
-              <SkipBack className="h-5 w-5" />
+              <SkipBack className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
 
             <button
               onClick={togglePlay}
-              className="flex h-11 w-11 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-white text-black shadow-[0_0_30px_rgba(255,255,255,0.4)] transition-all hover:scale-110 hover:bg-indigo-500 hover:text-white hover:shadow-[0_0_30px_rgba(99,102,241,0.6)] active:scale-95"
+              className="flex h-10 w-10 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-white text-black shadow-[0_0_30px_rgba(255,255,255,0.4)] transition-all hover:scale-105 hover:bg-indigo-500 hover:text-white hover:shadow-[0_0_30px_rgba(99,102,241,0.6)] active:scale-95 shrink-0"
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
               {isPlaying ? (
-                <Pause className="h-5 w-5 sm:h-6 sm:w-6 fill-current" />
+                <Pause className="h-4 w-4 sm:h-6 sm:w-6 fill-current" />
               ) : (
-                <Play className="h-5 w-5 sm:h-6 sm:w-6 fill-current translate-x-0.5" />
+                <Play className="h-4 w-4 sm:h-6 sm:w-6 fill-current translate-x-0.5" />
               )}
             </button>
 
             <button
               onClick={() => nextVideo && onSelectVideo(nextVideo)}
               disabled={!nextVideo}
-              className="rounded-full p-2 text-white/80 transition-all hover:bg-white/10 hover:text-white disabled:opacity-20 active:scale-95"
+              className="rounded-full p-1.5 sm:p-2 text-white/80 transition-all hover:bg-white/10 hover:text-white disabled:opacity-20 active:scale-95 shrink-0"
               title="Next Video"
               aria-label="Next Video"
             >
-              <SkipForward className="h-5 w-5" />
+              <SkipForward className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
 
             <button
               onClick={() => stepSeek(-10)}
-              className="hidden sm:inline-flex rounded-xl p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all active:scale-95"
+              className="hidden sm:inline-flex rounded-xl p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all active:scale-95 shrink-0"
               title="Rewind 10s (← / J)"
               aria-label="Rewind 10 seconds"
             >
@@ -734,7 +800,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
             <button
               onClick={() => stepSeek(10)}
-              className="hidden sm:inline-flex rounded-xl p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all active:scale-95"
+              className="hidden sm:inline-flex rounded-xl p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all active:scale-95 shrink-0"
               title="Forward 10s (→ / L)"
               aria-label="Forward 10 seconds"
             >
@@ -742,19 +808,19 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
             </button>
 
             {/* Volume Control */}
-            <div className="flex items-center space-x-2 ml-1">
+            <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
               <button
                 onClick={() => setIsMuted(!isMuted)}
-                className="rounded-xl p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all"
+                className="rounded-xl p-1.5 sm:p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all shrink-0"
                 aria-label={isMuted ? 'Unmute' : 'Mute'}
                 title="Mute / Unmute (M)"
               >
                 {isMuted || volume === 0 ? (
-                  <VolumeX className="h-5 w-5 text-red-400" />
+                  <VolumeX className="h-4 w-4 sm:h-5 sm:w-5 text-red-400" />
                 ) : volume < 0.5 ? (
-                  <Volume1 className="h-5 w-5" />
+                  <Volume1 className="h-4 w-4 sm:h-5 sm:w-5" />
                 ) : (
-                  <Volume2 className="h-5 w-5" />
+                  <Volume2 className="h-4 w-4 sm:h-5 sm:w-5" />
                 )}
               </button>
               <input
@@ -774,38 +840,38 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
             </div>
 
             {/* Time Stamp Display */}
-            <div className="text-xs font-semibold text-[#A1A1AA] tracking-wider pl-1">
+            <div className="text-[10px] sm:text-xs font-semibold text-[#A1A1AA] tracking-wider pl-0.5 sm:pl-1 shrink-0 whitespace-nowrap">
               <span className="text-white font-mono">{formatTimeCode(currentTime)}</span>
-              <span className="mx-1 text-[#52525B]">/</span>
+              <span className="mx-0.5 sm:mx-1 text-[#52525B]">/</span>
               <span className="font-mono">{formatTimeCode(duration)}</span>
             </div>
           </div>
 
           {/* Right Controls: Fit Mode, PiP, Speed, Fullscreen */}
-          <div className="relative flex items-center space-x-1.5 sm:space-x-2">
+          <div className="relative flex items-center space-x-1 sm:space-x-2 shrink-0">
             {/* Fit Mode Toggle (Contain vs Cover) */}
             <button
               onClick={toggleFitMode}
-              className="rounded-xl border border-white/10 bg-black/40 p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all"
+              className="rounded-xl border border-white/10 bg-black/40 p-1.5 sm:p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all shrink-0"
               title={`Screen Fit: ${fitMode === 'cover' ? 'Fill' : 'Original'} (C)`}
             >
-              <Scaling className="h-4 w-4" />
+              <Scaling className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </button>
 
             {/* Picture in Picture */}
             <button
               onClick={togglePiP}
-              className="rounded-xl border border-white/10 bg-black/40 p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all"
+              className="hidden xs:inline-flex sm:inline-flex rounded-xl border border-white/10 bg-black/40 p-1.5 sm:p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all shrink-0"
               title="Picture in Picture (P)"
             >
-              <PictureInPicture2 className="h-4 w-4" />
+              <PictureInPicture2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </button>
 
             {/* Speed Selector */}
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                className="rounded-xl border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs font-bold text-white/90 hover:bg-white/10 transition-all"
+                className="rounded-xl border border-white/10 bg-black/40 px-2 py-1 sm:px-2.5 sm:py-1.5 text-[11px] sm:text-xs font-bold text-white/90 hover:bg-white/10 transition-all shrink-0"
                 aria-label="Playback Speed"
               >
                 {playbackSpeed}x
@@ -837,14 +903,14 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
             {/* Fullscreen */}
             <button
               onClick={toggleFullscreen}
-              className="rounded-xl border border-white/10 bg-black/40 p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all"
+              className="rounded-xl border border-white/10 bg-black/40 p-1.5 sm:p-2 text-white/80 hover:bg-white/10 hover:text-white transition-all shrink-0"
               title="Toggle Fullscreen (F)"
               aria-label="Fullscreen"
             >
               {isFullscreen ? (
-                <Minimize className="h-4 w-4 sm:h-5 sm:w-5" />
+                <Minimize className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
               ) : (
-                <Maximize className="h-4 w-4 sm:h-5 sm:w-5" />
+                <Maximize className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
               )}
             </button>
           </div>
