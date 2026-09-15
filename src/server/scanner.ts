@@ -473,49 +473,66 @@ async function scanDirectoryRecursive(
   stats: ScanStats,
   activePaths: Set<string>
 ) {
-  let entries;
-  try {
-    entries = await fs.readdir(currentPath, { withFileTypes: true });
-  } catch (err: any) {
-    stats.errors.push(`Cannot read directory ${currentPath}: ${err.message}`);
-    return;
-  }
+  const filesToProcess: { fullPath: string; name: string }[] = [];
 
-  for (const entry of entries) {
-    // Ignore hidden files and system dirs
-    if (entry.name.startsWith('.') || entry.name.startsWith('$') || entry.name === 'node_modules' || entry.name === 'System Volume Information') {
-      stats.skippedFiles++;
-      continue;
+  async function collectFiles(dir: string) {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch (err: any) {
+      stats.errors.push(`Cannot read directory ${dir}: ${err.message}`);
+      return;
     }
 
-    const fullPath = path.join(currentPath, entry.name);
-
-    if (entry.isDirectory()) {
-      stats.totalFolders++;
-      updateScanProgress({
-        message: `Checking folder: ${path.relative(rootFolderPath, fullPath) || entry.name}`,
-        filesChecked: stats.totalFilesChecked
-      });
-      await scanDirectoryRecursive(fullPath, rootFolderPath, folderId, stats, activePaths);
-    } else if (entry.isFile()) {
-      stats.totalFilesChecked++;
-
-      const estimatedPercent = Math.min(92, 15 + Math.round(Math.min(stats.totalFilesChecked * 1.5, 75)));
-      updateScanProgress({
-        filesChecked: stats.totalFilesChecked,
-        progressPercent: estimatedPercent
-      });
-
-      if (!isSupportedVideo(entry.name)) {
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name.startsWith('$') || entry.name === 'node_modules' || entry.name === 'System Volume Information') {
         stats.skippedFiles++;
         continue;
       }
+
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        stats.totalFolders++;
+        await collectFiles(fullPath);
+      } else if (entry.isFile()) {
+        if (isSupportedVideo(entry.name)) {
+          filesToProcess.push({ fullPath, name: entry.name });
+        } else {
+          stats.skippedFiles++;
+        }
+      }
+    }
+  }
+
+  updateScanProgress({ message: 'Discovering local files...', progressPercent: 15 });
+  await collectFiles(currentPath);
+
+  let index = 0;
+  const CONCURRENCY_LOCAL = 8;
+  const totalFiles = filesToProcess.length;
+
+  const workers = Array(CONCURRENCY_LOCAL).fill(0).map(async () => {
+    while (index < filesToProcess.length) {
+      if (!scanProgress.isScanning) break;
+
+      const currentIndex = index++;
+      const { fullPath, name } = filesToProcess[currentIndex];
+
+      stats.totalFilesChecked++;
+      const estimatedPercent = Math.min(92, 15 + Math.round((stats.totalFilesChecked / Math.max(1, totalFiles)) * 77));
+      
+      updateScanProgress({
+        filesChecked: stats.totalFilesChecked,
+        progressPercent: estimatedPercent,
+        message: `Inspecting file ${stats.totalFilesChecked}/${totalFiles}: "${name}"...`,
+        currentFile: name
+      });
 
       try {
         const fileStat = await fs.stat(fullPath);
         const sizeBytes = fileStat.size;
 
-        // Skip all videos that are less than size 10MB
         if (sizeBytes < MIN_SIZE_BYTES) {
           stats.skippedFiles++;
           continue;
@@ -524,7 +541,6 @@ async function scanDirectoryRecursive(
         const modifiedAt = fileStat.mtime.toISOString();
         const createdAt = fileStat.birthtime.toISOString();
 
-        // Check if video already exists in database and hasn't been modified
         const existing = queryOne<VideoRecord>(
           'SELECT id, size_bytes, modified_at, duration_seconds, width, height, codec FROM videos WHERE absolute_path = ?',
           [fullPath]
@@ -542,15 +558,7 @@ async function scanDirectoryRecursive(
         }
 
         if (needsFfprobe) {
-          updateScanProgress({
-            message: `Inspecting video file: "${entry.name}"...`,
-            currentFile: entry.name
-          });
-
-          // Check video duration with ffprobe
           meta = await extractVideoMetadata(fullPath, 5000);
-
-          // Skip all videos that have duration less than 1 minute (60s)
           if (meta.durationSeconds > 0 && meta.durationSeconds < MIN_DURATION_SECONDS) {
             stats.skippedFiles++;
             continue;
@@ -561,20 +569,12 @@ async function scanDirectoryRecursive(
         activePaths.add(fullPath);
 
         const relativePath = path.relative(rootFolderPath, fullPath);
-        const ext = path.extname(entry.name).toLowerCase();
-        const mimeType = getMimeType(entry.name);
-        const title = deriveTitleFromFilename(entry.name);
-
-        updateScanProgress({
-          message: `Indexed video: "${title}" (${stats.videosFound} found)`,
-          currentFile: entry.name,
-          videosFound: stats.videosFound
-        });
-
+        const ext = path.extname(name).toLowerCase();
+        const mimeType = getMimeType(name);
+        const title = deriveTitleFromFilename(name);
         const now = new Date().toISOString();
 
         if (existing) {
-          // If size, modification time, or duration metadata updated, save changes
           runQuery(
             `UPDATE videos 
              SET size_bytes = ?, modified_at = ?, duration_seconds = COALESCE(?, duration_seconds),
@@ -585,7 +585,6 @@ async function scanDirectoryRecursive(
           );
           stats.updatedVideos++;
         } else {
-          // Insert new video
           runQuery(
             `INSERT INTO videos (
               folder_id, absolute_path, relative_path, filename, title,
@@ -596,7 +595,7 @@ async function scanDirectoryRecursive(
               folderId,
               fullPath,
               relativePath,
-              entry.name,
+              name,
               title,
               ext,
               mimeType,
@@ -616,11 +615,14 @@ async function scanDirectoryRecursive(
 
         updateScanProgress({
           newVideos: stats.newVideos,
-          updatedVideos: stats.updatedVideos
+          updatedVideos: stats.updatedVideos,
+          videosFound: stats.videosFound
         });
       } catch (fileErr: any) {
-        stats.errors.push(`Error processing ${entry.name}: ${fileErr.message}`);
+        stats.errors.push(`Error processing ${name}: ${fileErr.message}`);
       }
     }
-  }
+  });
+
+  await Promise.all(workers);
 }

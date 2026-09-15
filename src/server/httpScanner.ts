@@ -168,10 +168,10 @@ export async function scanHttpDirectory(
       // Parse all <a> links
       const linkRegex = /<a\s+(?:[^>]*?\s+)?href=(["'])(.*?)\1[^>]*>(.*?)<\/a>/gi;
       let match: RegExpExecArray | null;
+      
+      const pageVideos: { resolvedUrl: string, pathname: string, filename: string, ext: string, matchIndex: number }[] = [];
 
       while ((match = linkRegex.exec(html)) !== null) {
-        if (discoveredVideos.length >= MAX_VIDEOS) break;
-
         const href = match[2].trim();
         const linkText = match[3].replace(/<[^>]*>/g, '').trim();
 
@@ -206,9 +206,26 @@ export async function scanHttpDirectory(
 
         // Check if this link points to a supported video
         if (SUPPORTED_EXTENSIONS.has(ext)) {
+           pageVideos.push({ resolvedUrl, pathname, filename, ext, matchIndex: match.index });
+        } else if (
+          (href.endsWith('/') || !href.includes('.')) &&
+          current.depth < MAX_DEPTH &&
+          !visitedUrls.has(resolvedUrl)
+        ) {
+          // Subdirectory link - enqueue for crawl
+          queue.push({ url: resolvedUrl, depth: current.depth + 1 });
+        }
+      }
+
+      let vIndex = 0;
+      const CONCURRENCY_HTTP = 15;
+      const workers = Array(CONCURRENCY_HTTP).fill(0).map(async () => {
+        while (vIndex < pageVideos.length && discoveredVideos.length < MAX_VIDEOS) {
+          const video = pageVideos[vIndex++];
+          const { resolvedUrl, pathname, filename, ext, matchIndex } = video;
+
           let sizeBytes = 0;
           let durationSeconds = 0;
-          let isNew = true;
 
           // Check if video already exists in database to skip remote HEAD/range requests
           const existing = queryOne<VideoRecord>(
@@ -217,12 +234,10 @@ export async function scanHttpDirectory(
           );
 
           if (existing) {
-            isNew = false;
             sizeBytes = existing.size_bytes;
             durationSeconds = existing.duration_seconds;
           } else {
             // Look for file size in nearby HTML (Apache / Nginx table or pre row)
-            const matchIndex = match.index;
             const surroundingHtml = html.substring(matchIndex, matchIndex + 300);
             const sizeMatch = surroundingHtml.match(/\b([0-9.]+)\s*([KMGT]?B?)\b/i);
             if (sizeMatch) {
@@ -272,15 +287,11 @@ export async function scanHttpDirectory(
             currentFile: filename,
             videosFound: discoveredVideos.length
           });
-        } else if (
-          (href.endsWith('/') || !href.includes('.')) &&
-          current.depth < MAX_DEPTH &&
-          !visitedUrls.has(resolvedUrl)
-        ) {
-          // Subdirectory link - enqueue for crawl
-          queue.push({ url: resolvedUrl, depth: current.depth + 1 });
         }
-      }
+      });
+
+      await Promise.all(workers);
+
     } catch (err: any) {
       console.warn(`[HTTP Scanner] Error crawling ${current.url}:`, err.message);
     }
