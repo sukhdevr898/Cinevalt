@@ -34,8 +34,9 @@ import { Folder as FolderType, SystemInfo, LibraryStats, ScanResult, ScanProgres
 import { api } from '../services/api';
 import { formatBytes, formatDate } from '../utils/format';
 import { RemoteAccessGuide } from '../components/RemoteAccessGuide';
+import { useLogs } from '../hooks/useLogs';
 
-export type SettingsTab = 'health' | 'directories' | 'playback' | 'remote' | 'profile' | 'maintenance';
+export type SettingsTab = 'health' | 'directories' | 'playback' | 'remote' | 'profile' | 'maintenance' | 'logs';
 
 interface SettingsViewProps {
   folders: FolderType[];
@@ -162,6 +163,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   useEffect(() => {
     runHealthCheck();
   }, []);
+
+  const { logs, clearLogs } = useLogs();
+
+  const handleCopyLogs = () => {
+    const text = logs.map(l => `[${new Date(l.timestamp).toLocaleTimeString()}] [${l.type.toUpperCase()}] ${l.message}`).join('\n');
+    navigator.clipboard.writeText(text);
+    handleCopy(text, 'logs');
+  };
 
   const handleSpeedPreferenceChange = (spd: number) => {
     setDefaultSpeed(spd);
@@ -464,6 +473,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <Shield className="h-4 w-4 text-amber-400" />
             <span>Maintenance & Reset</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`flex items-center space-x-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
+              activeTab === 'logs'
+                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
+                : 'bg-white/5 text-[#A1A1AA] hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <Terminal className="h-4 w-4" />
+            <span>Activity Logs</span>
           </button>
         </div>
       </section>
@@ -1175,6 +1196,69 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {resetMessage && (
               <p className="text-xs text-red-300 mt-2">{resetMessage}</p>
             )}
+          </section>
+        </div>
+      )}
+
+      {/* TAB 7: LOGS */}
+      {activeTab === 'logs' && (
+        <div className="space-y-6">
+          <section className="space-y-4 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8 flex flex-col min-h-[500px]">
+            <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center space-x-2">
+                  <Terminal className="h-5 w-5 text-indigo-400" />
+                  <span>System Activity Logs</span>
+                </h2>
+                <p className="text-xs text-[#71717A] mt-0.5">
+                  Live scanner and system events from the current session.
+                </p>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleCopyLogs}
+                  className="flex items-center space-x-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10 transition-all active:scale-95"
+                >
+                  {copiedPath === 'logs' ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                  <span>{copiedPath === 'logs' ? 'Copied' : 'Copy'}</span>
+                </button>
+                <button
+                  onClick={clearLogs}
+                  className="flex items-center space-x-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 transition-all active:scale-95"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Clear</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto rounded-xl bg-black/60 p-4 border border-white/5 font-mono text-xs">
+              {logs.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-[#71717A]">
+                  No logs available for this session.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {logs.map((log) => (
+                    <div key={log.id} className="flex space-x-3 items-start border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
+                      <span className="text-[#71717A] whitespace-nowrap shrink-0">
+                        {new Date(log.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                      <span
+                        className={`shrink-0 uppercase font-bold w-12 ${
+                          log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-emerald-400' : 'text-indigo-400'
+                        }`}
+                      >
+                        [{log.type}]
+                      </span>
+                      <span className={`break-all ${log.type === 'error' ? 'text-red-300' : 'text-gray-300'}`}>
+                        {log.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
         </div>
       )}

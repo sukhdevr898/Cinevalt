@@ -146,7 +146,15 @@ export function createApiRouter(): Router {
         try {
           const u = new URL(resolvedPath);
           const cleanPath = u.pathname.split('/').filter(Boolean).pop();
-          defaultName = cleanPath ? decodeURIComponent(cleanPath) : u.hostname;
+          if (cleanPath) {
+            try {
+              defaultName = decodeURIComponent(cleanPath);
+            } catch {
+              defaultName = cleanPath; // Fallback to raw if malformed
+            }
+          } else {
+            defaultName = u.hostname;
+          }
         } catch {
           defaultName = 'Remote Web Directory';
         }

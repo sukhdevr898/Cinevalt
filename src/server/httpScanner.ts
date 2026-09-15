@@ -142,7 +142,12 @@ export async function scanHttpDirectory(
         }
 
         const pathname = new URL(current.url).pathname;
-        const filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || 'video.mp4');
+        let filename = 'video.mp4';
+        try {
+          filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || 'video.mp4');
+        } catch {
+          filename = pathname.split('/').filter(Boolean).pop() || 'video.mp4';
+        }
         const ext = '.' + (filename.split('.').pop() || 'mp4').toLowerCase();
         const title = deriveTitleFromFilename(filename);
         discoveredVideos.push({
@@ -185,12 +190,18 @@ export async function scanHttpDirectory(
 
         let resolvedUrl: string;
         try {
+          // Some servers return unescaped chars in href which can cause URL parse errors
           resolvedUrl = new URL(href, current.url).href;
         } catch {
           continue;
         }
 
-        const resolvedObj = new URL(resolvedUrl);
+        let resolvedObj: URL;
+        try {
+          resolvedObj = new URL(resolvedUrl);
+        } catch {
+          continue;
+        }
 
         // Security / Scope check: Stay on the same host and under the root directory tree
         if (resolvedObj.origin !== rootDomain) {
@@ -201,7 +212,13 @@ export async function scanHttpDirectory(
         }
 
         const pathname = resolvedObj.pathname;
-        const filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '');
+        let filename = '';
+        try {
+          filename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '');
+        } catch {
+          // Fallback to un-decoded if malformed
+          filename = pathname.split('/').filter(Boolean).pop() || '';
+        }
         const ext = ('.' + (filename.split('.').pop() || '')).toLowerCase();
 
         // Check if this link points to a supported video
@@ -272,6 +289,13 @@ export async function scanHttpDirectory(
           const relative = pathname.replace(rootBasePath, '').replace(/^\//, '') || filename;
           const title = deriveTitleFromFilename(filename);
 
+          let safeRelativePath = relative;
+          try {
+            safeRelativePath = decodeURIComponent(relative);
+          } catch {
+            safeRelativePath = relative; // Fallback to raw if malformed
+          }
+
           discoveredVideos.push({
             url: resolvedUrl,
             filename,
@@ -279,7 +303,7 @@ export async function scanHttpDirectory(
             extension: ext,
             sizeBytes,
             durationSeconds,
-            relativePath: decodeURIComponent(relative)
+            relativePath: safeRelativePath
           });
 
           onProgress?.({
