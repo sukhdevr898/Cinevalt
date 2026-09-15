@@ -1,4 +1,4 @@
-import { Video, Folder, LibraryStats, SystemInfo, ScanResult, ScanProgress } from '../types';
+import { Video, Folder, LibraryStats, SystemInfo, ScanResult, ScanProgress, ScannerSettings } from '../types';
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -148,6 +148,18 @@ export const api = {
   async updateSettings(settings: Record<string, string>): Promise<Record<string, string>> {
     return fetchJson<Record<string, string>>('/api/settings', {
       method: 'PATCH',
+      body: JSON.stringify(settings)
+    });
+  },
+
+  // Scanner Settings
+  async getScannerSettings(): Promise<ScannerSettings> {
+    return fetchJson<ScannerSettings>('/api/scanner/settings');
+  },
+
+  async updateScannerSettings(settings: Partial<ScannerSettings>): Promise<ScannerSettings> {
+    return fetchJson<ScannerSettings>('/api/scanner/settings', {
+      method: 'PUT',
       body: JSON.stringify(settings)
     });
   },

@@ -15,6 +15,7 @@ import { scanFolder, scanAllFolders, getScanState, getScanProgress, resetScanPro
 import { handleVideoStream, isPathContained } from './streaming.js';
 import { createSampleMediaIfEmpty } from './sampleMedia.js';
 import { isNativeBrowserPlayable, isSupportedVideo } from './mimeTypes.js';
+import { getScannerSettings, updateScannerSettings } from './scannerSettings.js';
 
 export function createApiRouter(): Router {
   const router = Router();
@@ -78,6 +79,25 @@ export function createApiRouter(): Router {
       sendSuccess(res, result);
     } catch (err: any) {
       sendError(res, 'SAMPLE_MEDIA_ERROR', err.message, 500);
+    }
+  });
+
+  // --- SCANNER SETTINGS ---
+  router.get('/scanner/settings', async (_req: Request, res: Response) => {
+    try {
+      const settings = await getScannerSettings();
+      sendSuccess(res, settings);
+    } catch (err: any) {
+      sendError(res, 'SCANNER_SETTINGS_ERROR', err.message, 500);
+    }
+  });
+
+  router.put('/scanner/settings', async (req: Request, res: Response) => {
+    try {
+      const settings = await updateScannerSettings(req.body);
+      sendSuccess(res, settings);
+    } catch (err: any) {
+      sendError(res, 'SCANNER_SETTINGS_UPDATE_ERROR', err.message, 500);
     }
   });
 

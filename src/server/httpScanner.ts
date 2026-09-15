@@ -1,9 +1,7 @@
 import { getDb, runQuery, queryOne, queryAll, VideoRecord } from './database.js';
-import { deriveTitleFromFilename, getMimeType, SUPPORTED_EXTENSIONS } from './mimeTypes.js';
+import { deriveTitleFromFilename, getMimeType, isSupportedVideo } from './mimeTypes.js';
 import { extractRemoteVideoDuration } from './metadataExtractor.js';
 
-const MIN_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const MIN_DURATION_SECONDS = 60; // 1 minute
 
 interface DiscoveredHttpVideo {
   url: string;
@@ -51,10 +49,13 @@ async function getRemoteFileSize(url: string): Promise<number> {
   }
 }
 
+import { ScannerSettings } from './scannerSettings.js';
+
 export async function scanHttpDirectory(
   folderId: number,
   rootUrl: string,
-  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void
+  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void,
+  scannerSettings?: ScannerSettings
 ): Promise<{
   videosFound: number;
   newVideos: number;
@@ -91,7 +92,9 @@ export async function scanHttpDirectory(
   const discoveredVideos: DiscoveredHttpVideo[] = [];
   const queue: { url: string; depth: number }[] = [{ url: normalizedRoot, depth: 0 }];
   const MAX_DEPTH = 10;
-  const MAX_VIDEOS = 500000;
+  const MAX_VIDEOS = (scannerSettings?.maxFetchLimit && scannerSettings.maxFetchLimit > 0) ? scannerSettings.maxFetchLimit : 500000;
+  const minSizeBytes = scannerSettings?.minSizeMB ? scannerSettings.minSizeMB * 1024 * 1024 : 0;
+  const minDurationSeconds = scannerSettings?.minDurationSeconds || 0;
 
   while (queue.length > 0 && discoveredVideos.length < MAX_VIDEOS) {
     const current = queue.shift()!;
@@ -131,13 +134,13 @@ export async function scanHttpDirectory(
         const sizeBytes = len ? parseInt(len, 10) || 0 : 0;
 
         // Skip if size less than 10MB
-        if (sizeBytes > 0 && sizeBytes < MIN_SIZE_BYTES) {
+        if (sizeBytes > 0 && sizeBytes < minSizeBytes) {
           break;
         }
 
         const durationSeconds = await extractRemoteVideoDuration(current.url, sizeBytes);
         // Skip if duration less than 1 minute (60s)
-        if (durationSeconds > 0 && durationSeconds < MIN_DURATION_SECONDS) {
+        if (durationSeconds > 0 && durationSeconds < minDurationSeconds) {
           break;
         }
 
@@ -222,7 +225,7 @@ export async function scanHttpDirectory(
         const ext = ('.' + (filename.split('.').pop() || '')).toLowerCase();
 
         // Check if this link points to a supported video
-        if (SUPPORTED_EXTENSIONS.has(ext)) {
+        if (isSupportedVideo(filename, scannerSettings?.allowedExtensions)) {
            pageVideos.push({ resolvedUrl, pathname, filename, ext, matchIndex: match.index });
         } else if (
           (href.endsWith('/') || !href.includes('.')) &&
@@ -267,7 +270,7 @@ export async function scanHttpDirectory(
             }
 
             // Skip all videos that are less than 10MB
-            if (sizeBytes > 0 && sizeBytes < MIN_SIZE_BYTES) {
+            if (sizeBytes > 0 && sizeBytes < minSizeBytes) {
               continue;
             }
 
@@ -281,7 +284,7 @@ export async function scanHttpDirectory(
             durationSeconds = await extractRemoteVideoDuration(resolvedUrl, sizeBytes);
 
             // Skip all videos with duration less than 1 minute (60s)
-            if (durationSeconds > 0 && durationSeconds < MIN_DURATION_SECONDS) {
+            if (durationSeconds > 0 && durationSeconds < minDurationSeconds) {
               continue;
             }
           }

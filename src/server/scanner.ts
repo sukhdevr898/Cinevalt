@@ -5,10 +5,7 @@ import { isSupportedVideo, getMimeType, deriveTitleFromFilename } from './mimeTy
 import { scanYouTubePlaylist, scanDriveFolder } from './cloudScanner.js';
 import { scanHttpDirectory } from './httpScanner.js';
 import { extractVideoMetadata } from './metadataExtractor.js';
-
-// Minimum filters: videos must be at least 10MB in size and at least 60 seconds long
-const MIN_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const MIN_DURATION_SECONDS = 60; // 1 minute
+import { getScannerSettings, ScannerSettings } from './scannerSettings.js';
 
 export interface ScanStats {
   folderId?: number;
@@ -157,6 +154,8 @@ async function executeScanFolder(folderId: number): Promise<ScanStats> {
       throw new Error(`Folder with ID ${folderId} not found.`);
     }
 
+    const scannerSettings = await getScannerSettings();
+
     stats.folderPath = folder.path;
 
     updateScanProgress({
@@ -187,7 +186,7 @@ async function executeScanFolder(folderId: number): Promise<ScanStats> {
           ...prog,
           newVideos: prog.videosFound !== undefined ? prog.videosFound : scanProgress.newVideos
         });
-      });
+      }, scannerSettings);
       stats.newVideos = ytStats.newVideos;
       stats.updatedVideos = ytStats.updatedVideos;
       stats.videosFound = ytStats.videosFound;
@@ -211,7 +210,7 @@ async function executeScanFolder(folderId: number): Promise<ScanStats> {
           ...prog,
           newVideos: prog.videosFound !== undefined ? prog.videosFound : scanProgress.newVideos
         });
-      });
+      }, scannerSettings);
       stats.newVideos = driveStats.newVideos;
       stats.updatedVideos = driveStats.updatedVideos;
       stats.videosFound = driveStats.videosFound;
@@ -236,7 +235,7 @@ async function executeScanFolder(folderId: number): Promise<ScanStats> {
           filesChecked: prog.filesChecked !== undefined ? prog.filesChecked : scanProgress.filesChecked,
           videosFound: prog.videosFound !== undefined ? prog.videosFound : scanProgress.videosFound
         });
-      });
+      }, scannerSettings);
       stats.newVideos = httpStats.newVideos;
       stats.updatedVideos = httpStats.updatedVideos;
       stats.removedVideos = httpStats.removedVideos;
@@ -284,7 +283,7 @@ async function executeScanFolder(folderId: number): Promise<ScanStats> {
     // Track active file paths found during this scan to identify removed videos
     const activePaths = new Set<string>();
 
-    await scanDirectoryRecursive(folder.path, folder.path, folder.id, stats, activePaths);
+    await scanDirectoryRecursive(folder.path, folder.path, folder.id, stats, activePaths, scannerSettings);
 
     updateScanProgress({
       message: 'Checking for removed or modified files in library...',
@@ -471,11 +470,19 @@ async function scanDirectoryRecursive(
   rootFolderPath: string,
   folderId: number,
   stats: ScanStats,
-  activePaths: Set<string>
+  activePaths: Set<string>,
+  scannerSettings?: ScannerSettings
 ) {
   const filesToProcess: { fullPath: string; name: string }[] = [];
 
+  const minSizeBytes = scannerSettings?.minSizeMB ? scannerSettings.minSizeMB * 1024 * 1024 : 0;
+  const minDurationSeconds = scannerSettings?.minDurationSeconds || 0;
+  const maxFetchLimit = scannerSettings?.maxFetchLimit || 0;
+  const allowedExts = scannerSettings?.allowedExtensions;
+
   async function collectFiles(dir: string) {
+    if (maxFetchLimit > 0 && filesToProcess.length >= maxFetchLimit) return;
+    
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
@@ -485,6 +492,8 @@ async function scanDirectoryRecursive(
     }
 
     for (const entry of entries) {
+      if (maxFetchLimit > 0 && filesToProcess.length >= maxFetchLimit) break;
+      
       if (entry.name.startsWith('.') || entry.name.startsWith('$') || entry.name === 'node_modules' || entry.name === 'System Volume Information') {
         stats.skippedFiles++;
         continue;
@@ -496,7 +505,7 @@ async function scanDirectoryRecursive(
         stats.totalFolders++;
         await collectFiles(fullPath);
       } else if (entry.isFile()) {
-        if (isSupportedVideo(entry.name)) {
+        if (isSupportedVideo(entry.name, allowedExts)) {
           filesToProcess.push({ fullPath, name: entry.name });
         } else {
           stats.skippedFiles++;
@@ -533,7 +542,7 @@ async function scanDirectoryRecursive(
         const fileStat = await fs.stat(fullPath);
         const sizeBytes = fileStat.size;
 
-        if (sizeBytes < MIN_SIZE_BYTES) {
+        if (minSizeBytes > 0 && sizeBytes < minSizeBytes) {
           stats.skippedFiles++;
           continue;
         }
@@ -559,7 +568,7 @@ async function scanDirectoryRecursive(
 
         if (needsFfprobe) {
           meta = await extractVideoMetadata(fullPath, 5000);
-          if (meta.durationSeconds > 0 && meta.durationSeconds < MIN_DURATION_SECONDS) {
+          if (minDurationSeconds > 0 && meta.durationSeconds > 0 && meta.durationSeconds < minDurationSeconds) {
             stats.skippedFiles++;
             continue;
           }

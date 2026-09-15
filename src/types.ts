@@ -103,6 +103,13 @@ export interface ScanResult {
   lastScanTimestamp: string;
 }
 
+export interface ScannerSettings {
+  maxFetchLimit: number;
+  minSizeMB: number;
+  minDurationSeconds: number;
+  allowedExtensions: string[];
+}
+
 export type ViewType = 'home' | 'movies' | 'favorites' | 'search' | 'settings';
 export type SortOption = 'recent' | 'name' | 'size' | 'duration' | 'played';
 export type FilterOption = 'all' | 'unwatched' | 'watched' | 'favorites';

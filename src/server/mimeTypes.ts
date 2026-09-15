@@ -58,12 +58,15 @@ export function getMimeType(filePath: string): string {
   return MIME_TYPE_MAP[ext] || 'video/mp4';
 }
 
-export function isSupportedVideo(filePath: string): boolean {
+export function isSupportedVideo(filePath: string, allowedExtensions?: string[]): boolean {
   const ext = (filePath.startsWith('.') && !filePath.includes('/') && !filePath.includes('\\') && filePath.indexOf('.', 1) === -1)
     ? filePath.toLowerCase()
     : path.extname(filePath).toLowerCase();
   if (EXCLUDED_NON_VIDEO_EXTENSIONS.has(ext)) {
     return false;
+  }
+  if (allowedExtensions && allowedExtensions.length > 0) {
+    return allowedExtensions.includes(ext) || ext === '.youtube' || ext === '.gdrive';
   }
   return SUPPORTED_EXTENSIONS.has(ext) || ext === '.youtube' || ext === '.gdrive';
 }

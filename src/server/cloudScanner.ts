@@ -1,14 +1,19 @@
 import youtubedl from 'youtube-dl-exec';
 import { getDb, runQuery, queryOne, FolderRecord } from './database.js';
+import { ScannerSettings } from './scannerSettings.js';
 
 export async function scanYouTubePlaylist(
   folderId: number,
   playlistId: string,
-  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void
+  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void,
+  scannerSettings?: ScannerSettings
 ): Promise<any> {
   let newVideos = 0;
   let updatedVideos = 0;
   const now = new Date().toISOString();
+
+  const minDurationSeconds = scannerSettings?.minDurationSeconds || 0;
+  const maxFetchLimit = scannerSettings?.maxFetchLimit || 0;
 
   onProgress?.({
     message: 'Connecting to YouTube playlist...',
@@ -33,13 +38,14 @@ export async function scanYouTubePlaylist(
   });
   
   for (let idx = 0; idx < items.length; idx++) {
+    if (maxFetchLimit > 0 && (newVideos + updatedVideos) >= maxFetchLimit) break;
+    
     const item = items[idx];
     const videoId = item.id;
     if (!videoId) continue;
 
-    // Skip videos with duration less than 1 minute (60 seconds)
     const duration = parseFloat(item.duration) || 0;
-    if (duration > 0 && duration < 60) {
+    if (minDurationSeconds > 0 && duration > 0 && duration < minDurationSeconds) {
       continue;
     }
     
@@ -85,11 +91,15 @@ export async function scanYouTubePlaylist(
 export async function scanDriveFolder(
   folderId: number,
   driveFolderId: string,
-  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void
+  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void,
+  scannerSettings?: ScannerSettings
 ): Promise<any> {
   let newVideos = 0;
   let updatedVideos = 0;
   const now = new Date().toISOString();
+
+  const minDurationSeconds = scannerSettings?.minDurationSeconds || 0;
+  const maxFetchLimit = scannerSettings?.maxFetchLimit || 0;
 
   onProgress?.({
     message: 'Connecting to Google Drive folder...',
@@ -115,13 +125,14 @@ export async function scanDriveFolder(
   });
   
   for (let idx = 0; idx < items.length; idx++) {
+    if (maxFetchLimit > 0 && (newVideos + updatedVideos) >= maxFetchLimit) break;
+    
     const item = items[idx];
     const videoId = item.id;
     if (!videoId) continue;
 
-    // Skip videos with duration less than 1 minute (60 seconds)
     const duration = parseFloat(item.duration) || 0;
-    if (duration > 0 && duration < 60) {
+    if (minDurationSeconds > 0 && duration > 0 && duration < minDurationSeconds) {
       continue;
     }
     

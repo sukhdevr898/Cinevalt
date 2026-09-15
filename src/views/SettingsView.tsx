@@ -28,15 +28,16 @@ import {
   Clock,
   Sparkles,
   ExternalLink,
+  Search,
   Loader2
 } from 'lucide-react';
-import { Folder as FolderType, SystemInfo, LibraryStats, ScanResult, ScanProgress } from '../types';
+import { Folder as FolderType, SystemInfo, LibraryStats, ScanResult, ScanProgress, ScannerSettings } from '../types';
 import { api } from '../services/api';
 import { formatBytes, formatDate } from '../utils/format';
 import { RemoteAccessGuide } from '../components/RemoteAccessGuide';
 import { useLogs } from '../hooks/useLogs';
 
-export type SettingsTab = 'health' | 'directories' | 'playback' | 'remote' | 'profile' | 'maintenance' | 'logs';
+export type SettingsTab = 'health' | 'directories' | 'scanner' | 'playback' | 'remote' | 'profile' | 'maintenance' | 'logs';
 
 interface SettingsViewProps {
   folders: FolderType[];
@@ -111,6 +112,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  // Scanner settings state
+  const [scannerSettings, setScannerSettings] = useState<ScannerSettings | null>(null);
+  const [isSavingScanner, setIsSavingScanner] = useState(false);
+  const [scannerSettingsString, setScannerSettingsString] = useState<string>('');
+
+  useEffect(() => {
+    if (activeTab === 'scanner' && !scannerSettings) {
+      api.getScannerSettings().then(s => {
+        setScannerSettings(s);
+        setScannerSettingsString(s.allowedExtensions.join(', '));
+      }).catch(console.error);
+    }
+  }, [activeTab]);
+
+  const handleSaveScannerSettings = async () => {
+    if (!scannerSettings) return;
+    setIsSavingScanner(true);
+    try {
+      const exts = scannerSettingsString.split(',').map(s => s.trim()).filter(Boolean);
+      const updated = await api.updateScannerSettings({
+        ...scannerSettings,
+        allowedExtensions: exts
+      });
+      setScannerSettings(updated);
+      setScannerSettingsString(updated.allowedExtensions.join(', '));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSavingScanner(false);
+    }
+  };
 
   // Playback experience preferences
   const [defaultSpeed, setDefaultSpeed] = useState<number>(() => {
@@ -425,6 +458,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <span className="rounded-full bg-white/15 px-1.5 py-0.2 text-[10px]">
               {folders.length}
             </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('scanner')}
+            className={`flex items-center space-x-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
+              activeTab === 'scanner'
+                ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
+                : 'bg-white/5 text-[#A1A1AA] hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <Search className="h-4 w-4" />
+            <span>Scanner Limits</span>
           </button>
 
           <button
@@ -849,7 +894,108 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </section>
       )}
 
-      {/* TAB 3: PLAYBACK ENGINE */}
+      {/* TAB 3: SCANNER LIMITS */}
+      {activeTab === 'scanner' && (
+        <section className="space-y-6 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
+          <div className="border-b border-white/5 pb-4">
+            <h2 className="text-lg font-bold text-white flex items-center space-x-2">
+              <Search className="h-5 w-5 text-indigo-400" />
+              <span>Scanner & Fetching Limits</span>
+            </h2>
+            <p className="text-xs text-[#71717A] mt-0.5">
+              Configure filtering rules used by the indexing engine when scanning directories.
+            </p>
+          </div>
+
+          {!scannerSettings ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Max Fetch Limit */}
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-white">Maximum Files to Fetch</label>
+                  <p className="text-xs text-[#71717A]">
+                    Limit the number of videos fetched per scan (0 = unlimited).
+                  </p>
+                  <input
+                    type="number"
+                    min="0"
+                    value={scannerSettings.maxFetchLimit}
+                    onChange={(e) => setScannerSettings({ ...scannerSettings, maxFetchLimit: parseInt(e.target.value) || 0 })}
+                    className="w-full rounded-xl border border-white/10 bg-[#151720] px-4 py-3 text-sm text-white focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Min Size MB */}
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-white">Minimum File Size (MB)</label>
+                  <p className="text-xs text-[#71717A]">
+                    Skip videos smaller than this size (0 = no limit).
+                  </p>
+                  <input
+                    type="number"
+                    min="0"
+                    value={scannerSettings.minSizeMB}
+                    onChange={(e) => setScannerSettings({ ...scannerSettings, minSizeMB: parseInt(e.target.value) || 0 })}
+                    className="w-full rounded-xl border border-white/10 bg-[#151720] px-4 py-3 text-sm text-white focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Min Duration Seconds */}
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-white">Minimum Duration (Seconds)</label>
+                  <p className="text-xs text-[#71717A]">
+                    Skip videos shorter than this duration (0 = no limit).
+                  </p>
+                  <input
+                    type="number"
+                    min="0"
+                    value={scannerSettings.minDurationSeconds}
+                    onChange={(e) => setScannerSettings({ ...scannerSettings, minDurationSeconds: parseInt(e.target.value) || 0 })}
+                    className="w-full rounded-xl border border-white/10 bg-[#151720] px-4 py-3 text-sm text-white focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+
+              </div>
+
+              {/* Allowed Extensions */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-white">Allowed File Formats</label>
+                <p className="text-xs text-[#71717A]">
+                  Comma-separated list of extensions (e.g. .mp4, .mkv, .avi).
+                </p>
+                <input
+                  type="text"
+                  value={scannerSettingsString}
+                  onChange={(e) => setScannerSettingsString(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-[#151720] px-4 py-3 text-sm text-white focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-4 border-t border-white/5">
+                <button
+                  onClick={handleSaveScannerSettings}
+                  disabled={isSavingScanner}
+                  className="flex items-center space-x-2 rounded-xl bg-indigo-500 px-6 py-3 font-semibold text-white hover:bg-indigo-400 active:scale-95 disabled:opacity-50 disabled:active:scale-100 transition-all shadow-lg shadow-indigo-500/25"
+                >
+                  {isSavingScanner ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  <span>{isSavingScanner ? 'Saving...' : 'Save Scanner Settings'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* TAB 4: PLAYBACK ENGINE */}
       {activeTab === 'playback' && (
         <section className="space-y-6 rounded-3xl border border-white/5 bg-[#0b0f19] p-6 sm:p-8">
           <div className="border-b border-white/5 pb-4">

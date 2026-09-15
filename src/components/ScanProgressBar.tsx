@@ -56,7 +56,7 @@ export const ScanProgressBar: React.FC<ScanProgressBarProps> = ({ progress, onDi
           initial={{ opacity: 0, y: -50, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -50, scale: 0.95, filter: 'blur(10px)' }}
-          className="fixed top-24 left-0 right-0 z-[60] flex justify-center pointer-events-none px-4"
+          className="fixed top-4 left-0 right-0 z-[100] flex justify-center pointer-events-none px-4"
         >
           <div className="pointer-events-auto flex flex-col items-center max-w-2xl w-full">
             {/* Dynamic Island Container */}
