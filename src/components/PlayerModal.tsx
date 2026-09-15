@@ -141,13 +141,56 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
     showActionToast(nextState ? 'Playing' : 'Paused');
   };
 
+  // Safe media element resolver across HTMLVideoElement, ReactPlayer v3, or custom web components
+  const getMediaElement = useCallback((): any => {
+    if (!playerRef.current) return null;
+    if (typeof playerRef.current.getInternalPlayer === 'function') {
+      try {
+        const internal = playerRef.current.getInternalPlayer();
+        if (internal) return internal;
+      } catch {
+        // fallback to playerRef.current
+      }
+    }
+    return playerRef.current;
+  }, []);
+
+  // Graceful close & pause helper to prevent play() interruption
+  const handleClose = useCallback(() => {
+    setIsPlaying(false);
+    const media = getMediaElement();
+    if (media && typeof media.pause === 'function') {
+      try {
+        media.pause();
+      } catch {
+        // ignore
+      }
+    }
+    const current = typeof media?.currentTime === 'number' ? media.currentTime : currentTime;
+    const dur = typeof media?.duration === 'number' && !isNaN(media.duration) && media.duration > 0 ? media.duration : duration;
+    saveProgress(current, dur);
+    onClose();
+  }, [getMediaElement, currentTime, duration, saveProgress, onClose]);
+
   // Seek helper
   const seekTo = (seconds: number) => {
-    if (!playerRef.current) return;
     const target = Math.max(0, Math.min(seconds, duration || 100));
-    const internal = playerRef.current.getInternalPlayer();
-    if (internal && typeof internal.currentTime === 'number') {
-      internal.currentTime = target;
+    const media = getMediaElement();
+    if (media) {
+      if (typeof media.seekTo === 'function') {
+        try {
+          media.seekTo(target);
+        } catch {
+          // ignore
+        }
+      }
+      if (typeof media.currentTime === 'number') {
+        try {
+          media.currentTime = target;
+        } catch {
+          // ignore
+        }
+      }
     }
     setCurrentTime(target);
   };
@@ -177,17 +220,19 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
   // Picture in Picture
   const togglePiP = async () => {
     try {
-      const internal = playerRef.current?.getInternalPlayer();
-      if (!internal || !(internal instanceof HTMLVideoElement)) {
+      const media = getMediaElement();
+      if (!media) {
         showActionToast('PiP not supported for this stream');
         return;
       }
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
         showActionToast('Exited PiP');
-      } else {
-        await internal.requestPictureInPicture();
+      } else if (typeof media.requestPictureInPicture === 'function') {
+        await media.requestPictureInPicture();
         showActionToast('Picture-in-Picture');
+      } else {
+        showActionToast('PiP not supported for this stream');
       }
     } catch (err) {
       showActionToast('PiP Unavailable');
@@ -320,7 +365,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
           } else if (document.fullscreenElement) {
             document.exitFullscreen().catch(() => {});
           } else {
-            onClose();
+            handleClose();
           }
           break;
       }
@@ -328,33 +373,40 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, duration, onClose, showShortcutsModal, fitMode]);
+  }, [isPlaying, duration, handleClose, showShortcutsModal, fitMode]);
 
   // Periodic progress saving every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (playerRef.current && isPlaying) {
-        const internal = playerRef.current.getInternalPlayer();
-        const current = internal?.currentTime || currentTime;
-        const dur = internal?.duration || duration;
+      if (isPlaying) {
+        const media = getMediaElement();
+        const current = typeof media?.currentTime === 'number' ? media.currentTime : currentTime;
+        const dur = typeof media?.duration === 'number' && !isNaN(media.duration) && media.duration > 0 ? media.duration : duration;
         saveProgress(current, dur);
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [saveProgress, isPlaying, duration, currentTime]);
+  }, [saveProgress, isPlaying, duration, currentTime, getMediaElement]);
 
-  // Save progress on unmount / close
+  // Save progress and pause on unmount / close
   useEffect(() => {
     return () => {
-      if (playerRef.current) {
-        const internal = playerRef.current.getInternalPlayer();
-        const current = internal?.currentTime || currentTime;
-        const dur = internal?.duration || duration;
-        saveProgress(current, dur);
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      const media = getMediaElement();
+      if (media && typeof media.pause === 'function') {
+        try {
+          media.pause();
+        } catch {
+          // ignore
+        }
       }
+      const current = typeof media?.currentTime === 'number' ? media.currentTime : currentTime;
+      const dur = typeof media?.duration === 'number' && !isNaN(media.duration) && media.duration > 0 ? media.duration : duration;
+      saveProgress(current, dur);
     };
-  }, [saveProgress, duration, currentTime]);
+  }, [saveProgress, duration, currentTime, getMediaElement]);
 
   // Calculate progress percentage
   const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
@@ -393,13 +445,7 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
       >
         <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 max-w-[75%] sm:max-w-[85%]">
           <button
-            onClick={() => {
-              if (playerRef.current) {
-                const internal = playerRef.current.getInternalPlayer();
-                saveProgress(internal?.currentTime || currentTime, internal?.duration || duration);
-              }
-              onClose();
-            }}
+            onClick={handleClose}
             className="shrink-0 rounded-full bg-black/60 p-2.5 text-white/90 backdrop-blur-xl border border-white/10 transition-all hover:bg-white/20 hover:text-white hover:scale-105 active:scale-95"
             aria-label="Back to Library"
           >
@@ -520,7 +566,11 @@ export const PlayerModal: React.FC<PlayerModalProps> = ({
               onSelectVideo(nextVideo);
             }
           }}
-          onError={(e) => {
+          onError={(e: any) => {
+            // Ignore normal unmount aborts when modal closes or unmounts
+            if (e?.name === 'AbortError' || (typeof e?.message === 'string' && e.message.includes('interrupted'))) {
+              return;
+            }
             setIsLoading(false);
             console.error('ReactPlayer error', e);
             setHasError(`Unable to play media source (${video.source_type}). Ensure codecs or permissions are valid.`);
