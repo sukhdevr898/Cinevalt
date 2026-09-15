@@ -9,6 +9,8 @@ import { SettingsView } from './views/SettingsView';
 import { PlayerModal } from './components/PlayerModal';
 import { MovieDetailsModal } from './components/MovieDetailsModal';
 import { AddFolderModal } from './components/AddFolderModal';
+import { ScanProgressBar } from './components/ScanProgressBar';
+import { useScanProgress } from './hooks/useScanProgress';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewType>('home');
@@ -54,6 +56,14 @@ export default function App() {
     }
   }, []);
 
+  // Live background scan progress tracking
+  const handleScanFinished = useCallback(() => {
+    loadData();
+    showToast('Library fetching completed!', 'success');
+  }, [loadData]);
+
+  const { progress, isScanning: isBgScanning, refreshProgress, dismissProgress } = useScanProgress(handleScanFinished);
+
   // Initial load
   useEffect(() => {
     loadData();
@@ -66,16 +76,13 @@ export default function App() {
     }
   }, [isLoading, folders.length, videos.length]);
 
-  // Handler: Scan library
+  // Handler: Scan library in background
   const handleScanLibrary = async () => {
     setIsScanning(true);
     try {
-      const res = await api.scanLibrary();
-      showToast(
-        `Scan complete: Found ${res.videosFound} videos (${res.newVideos} new, ${res.updatedVideos} updated)`,
-        'success'
-      );
-      await loadData();
+      await api.scanLibrary(true);
+      refreshProgress();
+      showToast('Library indexing started in background', 'info');
     } catch (err: any) {
       showToast(`Scan failed: ${err.message}`, 'error');
     } finally {
@@ -194,7 +201,7 @@ export default function App() {
         onSelectView={handleSelectView}
         onOpenAddFolder={() => setIsAddFolderOpen(true)}
         onScanLibrary={handleScanLibrary}
-        isScanning={isScanning}
+        isScanning={isScanning || isBgScanning}
         stats={stats}
       />
 
@@ -217,6 +224,9 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 mx-auto w-full max-w-7xl">
+        {/* Persistent Background Scanning Progress Bar */}
+        <ScanProgressBar progress={progress} onDismissCompleted={dismissProgress} />
+
         {isLoading ? (
           <div className="flex h-96 items-center justify-center">
             <div className="flex flex-col items-center space-y-3">
@@ -278,6 +288,8 @@ export default function App() {
                 systemInfo={systemInfo}
                 stats={stats}
                 initialTab={settingsInitialTab}
+                scanProgress={progress}
+                onTriggerScanProgress={refreshProgress}
                 onLibraryScanned={(res) => {
                   showToast(
                     `Scanned: Found ${res.videosFound} videos (${res.newVideos} new, ${res.updatedVideos} updated)`,
@@ -323,7 +335,8 @@ export default function App() {
         <AddFolderModal
           onClose={() => setIsAddFolderOpen(false)}
           onFolderAdded={() => {
-            showToast('Media folder added successfully', 'success');
+            showToast('Media source added. Fetching videos in background...', 'info');
+            refreshProgress();
             loadData();
           }}
         />

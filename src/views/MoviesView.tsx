@@ -52,6 +52,11 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
 
   // Ensure only video formats are processed in the library
   const videoOnlyList = useMemo(() => {
+    const validVideoExts = new Set([
+      '.mp4', '.webm', '.ogg', '.ogv', '.mov', '.m4v', '.mkv',
+      '.avi', '.3gp', '.ts', '.mpeg', '.mpg', '.wmv', '.flv',
+      '.youtube', '.gdrive'
+    ]);
     const nonVideoExts = new Set([
       '.srt', '.vtt', '.sub', '.idx', '.ass', '.ssa',
       '.txt', '.nfo', '.pdf', '.doc', '.docx', '.rtf', '.log', '.md',
@@ -63,6 +68,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
     return videos.filter((v) => {
       const ext = (v.extension || '').toLowerCase();
       if (nonVideoExts.has(ext)) return false;
+      if (ext && !validVideoExts.has(ext)) return false;
       const mime = (v.mime_type || '').toLowerCase();
       if (mime && !mime.startsWith('video/')) return false;
       return true;
@@ -241,11 +247,17 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       {!isFavoritesMode && (
         <div className="flex flex-col gap-4 border-b border-white/5 pb-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-['Outfit']">
-              Media Library
-            </h1>
+            <div className="flex items-center space-x-3">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white font-['Outfit']">
+                Media Library
+              </h1>
+              <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-300">
+                20 per page
+              </span>
+            </div>
             <p className="mt-1 text-xs text-[#A1A1AA]">
               {filteredVideos.length} {filteredVideos.length === 1 ? 'title' : 'titles'} indexed across all folders
+              {totalPages > 1 && ` • Page ${safeCurrentPage} of ${totalPages}`}
             </p>
           </div>
 

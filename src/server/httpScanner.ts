@@ -51,7 +51,11 @@ async function getRemoteFileSize(url: string): Promise<number> {
   }
 }
 
-export async function scanHttpDirectory(folderId: number, rootUrl: string): Promise<{
+export async function scanHttpDirectory(
+  folderId: number,
+  rootUrl: string,
+  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void
+): Promise<{
   videosFound: number;
   newVideos: number;
   updatedVideos: number;
@@ -62,6 +66,13 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
   let updatedVideos = 0;
   let removedVideos = 0;
   const now = new Date().toISOString();
+
+  onProgress?.({
+    message: `Connecting to remote server at ${rootUrl}...`,
+    progressPercent: 10,
+    filesChecked: 0,
+    videosFound: 0
+  });
 
   // Normalize root URL
   let normalizedRoot = rootUrl.trim();
@@ -86,6 +97,14 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
     const current = queue.shift()!;
     if (visitedUrls.has(current.url)) continue;
     visitedUrls.add(current.url);
+
+    const crawlPercent = Math.min(75, 15 + visitedUrls.size * 6);
+    onProgress?.({
+      message: `Crawling web directory (${visitedUrls.size} pages scanned, ${discoveredVideos.length} videos found)...`,
+      progressPercent: crawlPercent,
+      filesChecked: visitedUrls.size,
+      videosFound: discoveredVideos.length
+    });
 
     try {
       const controller = new AbortController();
@@ -135,11 +154,16 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
           durationSeconds,
           relativePath: filename
         });
+
+        onProgress?.({
+          message: `Discovered video: "${title}"`,
+          currentFile: filename,
+          videosFound: discoveredVideos.length
+        });
         break;
       }
 
       const html = await res.text();
-      const currentUrlObj = new URL(current.url);
 
       // Parse all <a> links
       const linkRegex = /<a\s+(?:[^>]*?\s+)?href=(["'])(.*?)\1[^>]*>(.*?)<\/a>/gi;
@@ -201,6 +225,12 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
             continue;
           }
 
+          onProgress?.({
+            message: `Inspecting remote video: "${filename}"...`,
+            currentFile: filename,
+            videosFound: discoveredVideos.length
+          });
+
           // Check video duration (range check on moov/mvhd)
           const durationSeconds = await extractRemoteVideoDuration(resolvedUrl, sizeBytes);
 
@@ -221,6 +251,12 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
             durationSeconds,
             relativePath: decodeURIComponent(relative)
           });
+
+          onProgress?.({
+            message: `Added video to index: "${title}"`,
+            currentFile: filename,
+            videosFound: discoveredVideos.length
+          });
         } else if (
           (href.endsWith('/') || !href.includes('.')) &&
           current.depth < MAX_DEPTH &&
@@ -237,9 +273,19 @@ export async function scanHttpDirectory(folderId: number, rootUrl: string): Prom
 
   // Active URLs discovered in this scan
   const activeUrls = new Set<string>();
+  const totalDiscovered = discoveredVideos.length;
 
-  for (const item of discoveredVideos) {
+  for (let i = 0; i < discoveredVideos.length; i++) {
+    const item = discoveredVideos[i];
     activeUrls.add(item.url);
+
+    const savePercent = totalDiscovered > 0 ? Math.min(96, 75 + Math.round(((i + 1) / totalDiscovered) * 20)) : 85;
+    onProgress?.({
+      message: `Saving videos to library (${i + 1}/${totalDiscovered}): "${item.title}"`,
+      currentFile: item.filename,
+      progressPercent: savePercent
+    });
+
     const existing = queryOne<VideoRecord>(
       'SELECT id FROM videos WHERE absolute_path = ? AND folder_id = ?',
       [item.url, folderId]

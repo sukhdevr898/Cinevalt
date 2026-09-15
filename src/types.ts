@@ -54,6 +54,27 @@ export interface LibraryStats {
   favoriteVideos: number;
 }
 
+export interface ScanProgress {
+  isScanning: boolean;
+  folderId: number | null;
+  folderName: string | null;
+  folderPath: string | null;
+  folderType: 'local' | 'youtube' | 'gdrive' | 'http' | null;
+  status: 'idle' | 'scanning' | 'completed' | 'error';
+  progressPercent: number;
+  message: string;
+  currentFile: string | null;
+  filesChecked: number;
+  videosFound: number;
+  newVideos: number;
+  updatedVideos: number;
+  removedVideos: number;
+  errors: string[];
+  startTime: number | null;
+  elapsedSeconds: number;
+  completedAt: string | null;
+}
+
 export interface SystemInfo {
   platform: string;
   hostname: string;
@@ -64,10 +85,7 @@ export interface SystemInfo {
   totalVideos: number;
   totalStorageBytes: number;
   totalFolders: number;
-  scanState: {
-    isScanning: boolean;
-    currentScanFolderId: number | null;
-  };
+  scanState: ScanProgress;
 }
 
 export interface ScanResult {

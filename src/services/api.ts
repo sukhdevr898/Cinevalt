@@ -1,4 +1,4 @@
-import { Video, Folder, LibraryStats, SystemInfo, ScanResult } from '../types';
+import { Video, Folder, LibraryStats, SystemInfo, ScanResult, ScanProgress } from '../types';
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -70,8 +70,9 @@ export const api = {
     });
   },
 
-  async scanFolder(id: number): Promise<ScanResult> {
-    return fetchJson<ScanResult>(`/api/folders/${id}/scan`, {
+  async scanFolder(id: number, background = false): Promise<ScanResult | { started: boolean }> {
+    const qs = background ? '?background=true' : '';
+    return fetchJson<ScanResult | { started: boolean }>(`/api/folders/${id}/scan${qs}`, {
       method: 'POST'
     });
   },
@@ -151,9 +152,14 @@ export const api = {
     });
   },
 
-  // Library
-  async scanLibrary(): Promise<ScanResult> {
-    return fetchJson<ScanResult>('/api/library/scan', {
+  // Library & Scan
+  async getScanProgress(): Promise<ScanProgress> {
+    return fetchJson<ScanProgress>('/api/scan/progress');
+  },
+
+  async scanLibrary(background = false): Promise<ScanResult | { started: boolean }> {
+    const qs = background ? '?background=true' : '';
+    return fetchJson<ScanResult | { started: boolean }>(`/api/library/scan${qs}`, {
       method: 'POST'
     });
   },

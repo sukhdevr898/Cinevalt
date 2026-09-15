@@ -25,23 +25,97 @@ export interface ScanStats {
   lastScanTimestamp: string;
 }
 
-let isScanning = false;
-let currentScanFolderId: number | null = null;
-
-export function getScanState() {
-  return {
-    isScanning,
-    currentScanFolderId
-  };
+export interface ScanProgress {
+  isScanning: boolean;
+  folderId: number | null;
+  folderName: string | null;
+  folderPath: string | null;
+  folderType: 'local' | 'youtube' | 'gdrive' | 'http' | null;
+  status: 'idle' | 'scanning' | 'completed' | 'error';
+  progressPercent: number;
+  message: string;
+  currentFile: string | null;
+  filesChecked: number;
+  videosFound: number;
+  newVideos: number;
+  updatedVideos: number;
+  removedVideos: number;
+  errors: string[];
+  startTime: number | null;
+  elapsedSeconds: number;
+  completedAt: string | null;
 }
 
+let scanProgress: ScanProgress = {
+  isScanning: false,
+  folderId: null,
+  folderName: null,
+  folderPath: null,
+  folderType: null,
+  status: 'idle',
+  progressPercent: 0,
+  message: '',
+  currentFile: null,
+  filesChecked: 0,
+  videosFound: 0,
+  newVideos: 0,
+  updatedVideos: 0,
+  removedVideos: 0,
+  errors: [],
+  startTime: null,
+  elapsedSeconds: 0,
+  completedAt: null
+};
+
+export function getScanProgress(): ScanProgress {
+  if (scanProgress.isScanning && scanProgress.startTime) {
+    scanProgress.elapsedSeconds = Math.round((Date.now() - scanProgress.startTime) / 1000);
+  }
+  return { ...scanProgress };
+}
+
+export function updateScanProgress(updates: Partial<ScanProgress>) {
+  Object.assign(scanProgress, updates);
+  if (scanProgress.startTime && scanProgress.isScanning) {
+    scanProgress.elapsedSeconds = Math.round((Date.now() - scanProgress.startTime) / 1000);
+  }
+}
+
+export function getScanState() {
+  return getScanProgress();
+}
+
+let activeScanPromise: Promise<ScanStats> | null = null;
+
 export async function scanFolder(folderId: number): Promise<ScanStats> {
-  if (isScanning) {
-    throw new Error('A scan is already in progress. Please wait for it to complete.');
+  // If this exact folder is already currently being scanned, return the active scan promise
+  if (activeScanPromise) {
+    if (scanProgress.isScanning && scanProgress.folderId === folderId) {
+      return activeScanPromise;
+    }
+    // If another folder or library scan is running, await its completion before scanning this folder
+    try {
+      await activeScanPromise;
+    } catch {
+      // Ignore previous errors to allow this folder scan to proceed
+    }
   }
 
-  isScanning = true;
-  currentScanFolderId = folderId;
+  const runPromise = (async () => {
+    try {
+      return await executeScanFolder(folderId);
+    } finally {
+      if (activeScanPromise === runPromise) {
+        activeScanPromise = null;
+      }
+    }
+  })();
+
+  activeScanPromise = runPromise;
+  return runPromise;
+}
+
+async function executeScanFolder(folderId: number): Promise<ScanStats> {
   const startTime = Date.now();
 
   const stats: ScanStats = {
@@ -67,40 +141,105 @@ export async function scanFolder(folderId: number): Promise<ScanStats> {
 
     stats.folderPath = folder.path;
 
+    updateScanProgress({
+      isScanning: true,
+      folderId,
+      folderName: folder.name,
+      folderPath: folder.path,
+      folderType: folder.folder_type,
+      status: 'scanning',
+      progressPercent: 5,
+      message: `Starting fetch for "${folder.name}"...`,
+      currentFile: null,
+      filesChecked: 0,
+      videosFound: 0,
+      newVideos: 0,
+      updatedVideos: 0,
+      removedVideos: 0,
+      errors: [],
+      startTime,
+      elapsedSeconds: 0,
+      completedAt: null
+    });
+
     if (folder.folder_type === 'youtube') {
       runQuery("UPDATE folders SET scan_status = 'scanning', updated_at = ? WHERE id = ?", [new Date().toISOString(), folderId]);
-      const ytStats = await scanYouTubePlaylist(folderId, folder.path);
+      const ytStats = await scanYouTubePlaylist(folderId, folder.path, (prog) => {
+        updateScanProgress({
+          ...prog,
+          newVideos: prog.videosFound !== undefined ? prog.videosFound : scanProgress.newVideos
+        });
+      });
       stats.newVideos = ytStats.newVideos;
       stats.updatedVideos = ytStats.updatedVideos;
       stats.videosFound = ytStats.videosFound;
-      isScanning = false;
-      currentScanFolderId = null;
       stats.scanDurationMs = Date.now() - startTime;
+
+      updateScanProgress({
+        isScanning: false,
+        status: 'completed',
+        progressPercent: 100,
+        message: `Fetched ${stats.videosFound} YouTube videos successfully.`,
+        videosFound: stats.videosFound,
+        newVideos: stats.newVideos,
+        updatedVideos: stats.updatedVideos,
+        completedAt: new Date().toISOString()
+      });
       return stats;
     } else if (folder.folder_type === 'gdrive') {
       runQuery("UPDATE folders SET scan_status = 'scanning', updated_at = ? WHERE id = ?", [new Date().toISOString(), folderId]);
-      const driveStats = await scanDriveFolder(folderId, folder.path);
+      const driveStats = await scanDriveFolder(folderId, folder.path, (prog) => {
+        updateScanProgress({
+          ...prog,
+          newVideos: prog.videosFound !== undefined ? prog.videosFound : scanProgress.newVideos
+        });
+      });
       stats.newVideos = driveStats.newVideos;
       stats.updatedVideos = driveStats.updatedVideos;
       stats.videosFound = driveStats.videosFound;
-      isScanning = false;
-      currentScanFolderId = null;
       stats.scanDurationMs = Date.now() - startTime;
+
+      updateScanProgress({
+        isScanning: false,
+        status: 'completed',
+        progressPercent: 100,
+        message: `Fetched ${stats.videosFound} Google Drive videos successfully.`,
+        videosFound: stats.videosFound,
+        newVideos: stats.newVideos,
+        updatedVideos: stats.updatedVideos,
+        completedAt: new Date().toISOString()
+      });
       return stats;
     } else if (folder.folder_type === 'http') {
       runQuery("UPDATE folders SET scan_status = 'scanning', updated_at = ? WHERE id = ?", [new Date().toISOString(), folderId]);
-      const httpStats = await scanHttpDirectory(folderId, folder.path);
+      const httpStats = await scanHttpDirectory(folderId, folder.path, (prog) => {
+        updateScanProgress({
+          ...prog,
+          filesChecked: prog.filesChecked !== undefined ? prog.filesChecked : scanProgress.filesChecked,
+          videosFound: prog.videosFound !== undefined ? prog.videosFound : scanProgress.videosFound
+        });
+      });
       stats.newVideos = httpStats.newVideos;
       stats.updatedVideos = httpStats.updatedVideos;
       stats.removedVideos = httpStats.removedVideos;
       stats.videosFound = httpStats.videosFound;
-      isScanning = false;
-      currentScanFolderId = null;
       stats.scanDurationMs = Date.now() - startTime;
+
+      updateScanProgress({
+        isScanning: false,
+        status: 'completed',
+        progressPercent: 100,
+        message: `Fetched ${stats.videosFound} remote videos from server successfully.`,
+        videosFound: stats.videosFound,
+        newVideos: stats.newVideos,
+        updatedVideos: stats.updatedVideos,
+        removedVideos: stats.removedVideos,
+        completedAt: new Date().toISOString()
+      });
       return stats;
     }
 
-    // Check directory accessibility
+    // Check directory accessibility for local folders
     try {
       const dirStat = await fs.stat(folder.path);
       if (!dirStat.isDirectory()) {
@@ -119,10 +258,20 @@ export async function scanFolder(folderId: number): Promise<ScanStats> {
       folderId
     ]);
 
+    updateScanProgress({
+      message: `Scanning local directory: ${folder.path}...`,
+      progressPercent: 15
+    });
+
     // Track active file paths found during this scan to identify removed videos
     const activePaths = new Set<string>();
 
     await scanDirectoryRecursive(folder.path, folder.path, folder.id, stats, activePaths);
+
+    updateScanProgress({
+      message: 'Checking for removed or modified files in library...',
+      progressPercent: 94
+    });
 
     // Check for removed videos that were previously in this folder
     const existingVideos = queryAll<VideoRecord>(
@@ -148,27 +297,68 @@ export async function scanFolder(folderId: number): Promise<ScanStats> {
        WHERE id = ?`,
       [now, stats.videosFound, now, folder.id]
     );
+
+    stats.scanDurationMs = Date.now() - startTime;
+
+    updateScanProgress({
+      isScanning: false,
+      status: 'completed',
+      progressPercent: 100,
+      message: `Local scan completed! Found ${stats.videosFound} videos (${stats.newVideos} new, ${stats.updatedVideos} updated).`,
+      filesChecked: stats.totalFilesChecked,
+      videosFound: stats.videosFound,
+      newVideos: stats.newVideos,
+      updatedVideos: stats.updatedVideos,
+      removedVideos: stats.removedVideos,
+      completedAt: now
+    });
   } catch (err: any) {
     stats.errors.push(err.message || 'Unknown scan error');
     runQuery("UPDATE folders SET scan_status = 'error', updated_at = ? WHERE id = ?", [
       new Date().toISOString(),
       folderId
     ]);
+
+    updateScanProgress({
+      isScanning: false,
+      status: 'error',
+      message: `Scan failed: ${err.message || 'Unknown error'}`,
+      errors: [...scanProgress.errors, err.message || 'Unknown error']
+    });
+
     throw err;
-  } finally {
-    isScanning = false;
-    currentScanFolderId = null;
-    stats.scanDurationMs = Date.now() - startTime;
   }
 
   return stats;
 }
 
 export async function scanAllFolders(): Promise<ScanStats> {
-  if (isScanning) {
-    throw new Error('A scan is already in progress. Please wait for it to complete.');
+  if (activeScanPromise) {
+    if (scanProgress.isScanning && scanProgress.folderId === null) {
+      return activeScanPromise;
+    }
+    try {
+      await activeScanPromise;
+    } catch {
+      // Ignore previous errors
+    }
   }
 
+  const runPromise = (async () => {
+    try {
+      return await executeScanAllFolders();
+    } finally {
+      if (activeScanPromise === runPromise) {
+        activeScanPromise = null;
+      }
+    }
+  })();
+
+  activeScanPromise = runPromise;
+  return runPromise;
+}
+
+async function executeScanAllFolders(): Promise<ScanStats> {
   await getDb();
   const folders = queryAll<FolderRecord>('SELECT * FROM folders WHERE enabled = 1');
 
@@ -187,9 +377,42 @@ export async function scanAllFolders(): Promise<ScanStats> {
 
   const startTime = Date.now();
 
-  for (const folder of folders) {
+  updateScanProgress({
+    isScanning: true,
+    folderId: null,
+    folderName: 'All Active Folders',
+    folderPath: null,
+    folderType: null,
+    status: 'scanning',
+    progressPercent: 5,
+    message: `Starting library scan for ${folders.length} active sources...`,
+    currentFile: null,
+    filesChecked: 0,
+    videosFound: 0,
+    newVideos: 0,
+    updatedVideos: 0,
+    removedVideos: 0,
+    errors: [],
+    startTime,
+    elapsedSeconds: 0,
+    completedAt: null
+  });
+
+  for (let idx = 0; idx < folders.length; idx++) {
+    const folder = folders[idx];
     try {
+      updateScanProgress({
+        folderId: folder.id,
+        folderName: folder.name,
+        message: `Scanning source (${idx + 1}/${folders.length}): ${folder.name}`,
+        progressPercent: Math.min(90, Math.round(((idx + 0.1) / folders.length) * 85) + 5)
+      });
+
+      // Temporarily mark isScanning false so scanFolder can run for this specific folder
+      scanProgress.isScanning = false;
       const stats = await scanFolder(folder.id);
+      scanProgress.isScanning = true;
+
       combinedStats.totalFolders += stats.totalFolders;
       combinedStats.totalFilesChecked += stats.totalFilesChecked;
       combinedStats.videosFound += stats.videosFound;
@@ -198,12 +421,34 @@ export async function scanAllFolders(): Promise<ScanStats> {
       combinedStats.removedVideos += stats.removedVideos;
       combinedStats.skippedFiles += stats.skippedFiles;
       combinedStats.errors.push(...stats.errors);
+
+      updateScanProgress({
+        filesChecked: combinedStats.totalFilesChecked,
+        videosFound: combinedStats.videosFound,
+        newVideos: combinedStats.newVideos,
+        updatedVideos: combinedStats.updatedVideos,
+        removedVideos: combinedStats.removedVideos
+      });
     } catch (err: any) {
       combinedStats.errors.push(`Error scanning ${folder.name}: ${err.message}`);
     }
   }
 
   combinedStats.scanDurationMs = Date.now() - startTime;
+
+  updateScanProgress({
+    isScanning: false,
+    status: 'completed',
+    progressPercent: 100,
+    message: `Library scan complete! Found ${combinedStats.videosFound} videos across ${folders.length} sources.`,
+    filesChecked: combinedStats.totalFilesChecked,
+    videosFound: combinedStats.videosFound,
+    newVideos: combinedStats.newVideos,
+    updatedVideos: combinedStats.updatedVideos,
+    removedVideos: combinedStats.removedVideos,
+    completedAt: new Date().toISOString()
+  });
+
   return combinedStats;
 }
 
@@ -233,9 +478,19 @@ async function scanDirectoryRecursive(
 
     if (entry.isDirectory()) {
       stats.totalFolders++;
+      updateScanProgress({
+        message: `Checking folder: ${path.relative(rootFolderPath, fullPath) || entry.name}`,
+        filesChecked: stats.totalFilesChecked
+      });
       await scanDirectoryRecursive(fullPath, rootFolderPath, folderId, stats, activePaths);
     } else if (entry.isFile()) {
       stats.totalFilesChecked++;
+
+      const estimatedPercent = Math.min(92, 15 + Math.round(Math.min(stats.totalFilesChecked * 1.5, 75)));
+      updateScanProgress({
+        filesChecked: stats.totalFilesChecked,
+        progressPercent: estimatedPercent
+      });
 
       if (!isSupportedVideo(entry.name)) {
         stats.skippedFiles++;
@@ -251,6 +506,11 @@ async function scanDirectoryRecursive(
           stats.skippedFiles++;
           continue;
         }
+
+        updateScanProgress({
+          message: `Inspecting video file: "${entry.name}"...`,
+          currentFile: entry.name
+        });
 
         // Check video duration with ffprobe
         const meta = await extractVideoMetadata(fullPath, 5000);
@@ -270,6 +530,12 @@ async function scanDirectoryRecursive(
         const title = deriveTitleFromFilename(entry.name);
         const modifiedAt = fileStat.mtime.toISOString();
         const createdAt = fileStat.birthtime.toISOString();
+
+        updateScanProgress({
+          message: `Indexed video: "${title}" (${stats.videosFound} found)`,
+          currentFile: entry.name,
+          videosFound: stats.videosFound
+        });
 
         // Check if video already exists in database
         const existing = queryOne<VideoRecord>(
@@ -319,6 +585,11 @@ async function scanDirectoryRecursive(
           );
           stats.newVideos++;
         }
+
+        updateScanProgress({
+          newVideos: stats.newVideos,
+          updatedVideos: stats.updatedVideos
+        });
       } catch (fileErr: any) {
         stats.errors.push(`Error processing ${entry.name}: ${fileErr.message}`);
       }

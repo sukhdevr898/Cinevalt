@@ -27,9 +27,10 @@ import {
   Layers,
   Clock,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from 'lucide-react';
-import { Folder as FolderType, SystemInfo, LibraryStats, ScanResult } from '../types';
+import { Folder as FolderType, SystemInfo, LibraryStats, ScanResult, ScanProgress } from '../types';
 import { api } from '../services/api';
 import { formatBytes, formatDate } from '../utils/format';
 import { RemoteAccessGuide } from '../components/RemoteAccessGuide';
@@ -46,6 +47,8 @@ interface SettingsViewProps {
   stats: LibraryStats | null;
   onLibraryScanned: (result: ScanResult) => void;
   initialTab?: string;
+  scanProgress?: ScanProgress | null;
+  onTriggerScanProgress?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -57,7 +60,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   systemInfo,
   stats,
   onLibraryScanned,
-  initialTab = 'health'
+  initialTab = 'health',
+  scanProgress,
+  onTriggerScanProgress
 }) => {
   // Normalize initialTab for backwards compatibility
   const normalizedInitialTab = (): SettingsTab => {
@@ -203,9 +208,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleScanFolder = async (folderId: number) => {
     setScanningFolderId(folderId);
     try {
-      const res = await api.scanFolder(folderId);
-      onLibraryScanned(res);
-      onRefreshFolders();
+      await api.scanFolder(folderId, true);
+      onTriggerScanProgress?.();
     } catch (err: any) {
       alert(`Scan failed: ${err.message}`);
     } finally {
@@ -245,9 +249,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const handleScanAll = async () => {
     setIsScanningAll(true);
     try {
-      const res = await api.scanLibrary();
-      onLibraryScanned(res);
-      onRefreshFolders();
+      await api.scanLibrary(true);
+      onTriggerScanProgress?.();
     } catch (err: any) {
       alert(`Library scan failed: ${err.message}`);
     } finally {
@@ -757,6 +760,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <p className="text-[11px] text-[#71717A]">
                         Last indexed: {formatDate(folder.last_scanned_at)}
                       </p>
+                    )}
+
+                    {scanProgress?.isScanning && (scanProgress.folderId === folder.id || scanProgress.folderId === null) && (
+                      <div className="mt-2 pt-2 border-t border-white/5 space-y-1.5 max-w-xl">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-indigo-400 font-semibold flex items-center truncate">
+                            <Loader2 className="h-3 w-3 animate-spin mr-1.5 shrink-0" />
+                            <span className="truncate">{scanProgress.message || 'Fetching videos in background...'}</span>
+                          </span>
+                          <span className="font-mono text-xs font-bold text-white shrink-0 ml-2">
+                            {Math.round(scanProgress.progressPercent || 0)}%
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.round(scanProgress.progressPercent || 0)}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-[#71717A]">
+                          <span>{scanProgress.videosFound} videos discovered ({scanProgress.filesChecked} files inspected)</span>
+                          {scanProgress.elapsedSeconds > 0 && <span>{scanProgress.elapsedSeconds}s elapsed</span>}
+                        </div>
+                      </div>
                     )}
                   </div>
 

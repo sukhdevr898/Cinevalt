@@ -50,13 +50,7 @@ export const AddFolderModal: React.FC<AddFolderModalProps> = ({ onClose, onFolde
     setError(null);
 
     try {
-      const added = await api.addFolder(folderPath.trim(), folderName.trim() || undefined, activeTab);
-      // Auto trigger initial scan on newly added folder
-      try {
-        await api.scanFolder(added.id);
-      } catch (scanErr: any) {
-        console.warn('Initial folder scan notice:', scanErr);
-      }
+      await api.addFolder(folderPath.trim(), folderName.trim() || undefined, activeTab);
       onFolderAdded();
       onClose();
     } catch (err: any) {

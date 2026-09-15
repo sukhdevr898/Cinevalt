@@ -1,10 +1,19 @@
 import youtubedl from 'youtube-dl-exec';
 import { getDb, runQuery, queryOne, FolderRecord } from './database.js';
 
-export async function scanYouTubePlaylist(folderId: number, playlistId: string): Promise<any> {
+export async function scanYouTubePlaylist(
+  folderId: number,
+  playlistId: string,
+  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void
+): Promise<any> {
   let newVideos = 0;
   let updatedVideos = 0;
   const now = new Date().toISOString();
+
+  onProgress?.({
+    message: 'Connecting to YouTube playlist...',
+    progressPercent: 15
+  });
 
   const playlistUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
   
@@ -15,8 +24,16 @@ export async function scanYouTubePlaylist(folderId: number, playlistId: string):
   });
 
   const items = output.entries || [];
+  const total = items.length;
+
+  onProgress?.({
+    message: `Discovered ${total} items in YouTube playlist. Extracting videos...`,
+    progressPercent: 30,
+    filesChecked: total
+  });
   
-  for (const item of items) {
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx];
     const videoId = item.id;
     if (!videoId) continue;
 
@@ -33,6 +50,14 @@ export async function scanYouTubePlaylist(folderId: number, playlistId: string):
     const absolute_path = remote_url;
     const filename = `${videoId}.youtube`;
     
+    const percent = total > 0 ? Math.min(95, 30 + Math.round(((idx + 1) / total) * 65)) : 50;
+    onProgress?.({
+      message: `Processing YouTube video (${idx + 1}/${total}): "${title}"`,
+      currentFile: title,
+      progressPercent: percent,
+      videosFound: newVideos + updatedVideos
+    });
+
     const existing = queryOne('SELECT id FROM videos WHERE absolute_path = ? AND folder_id = ?', [absolute_path, folderId]);
     if (existing) {
       runQuery('UPDATE videos SET title = ?, thumbnail_url = ?, updated_at_db = ? WHERE id = ?', 
@@ -57,10 +82,19 @@ export async function scanYouTubePlaylist(folderId: number, playlistId: string):
   return { videosFound: newVideos + updatedVideos, newVideos, updatedVideos };
 }
 
-export async function scanDriveFolder(folderId: number, driveFolderId: string): Promise<any> {
+export async function scanDriveFolder(
+  folderId: number,
+  driveFolderId: string,
+  onProgress?: (update: { message?: string; progressPercent?: number; filesChecked?: number; videosFound?: number; currentFile?: string }) => void
+): Promise<any> {
   let newVideos = 0;
   let updatedVideos = 0;
   const now = new Date().toISOString();
+
+  onProgress?.({
+    message: 'Connecting to Google Drive folder...',
+    progressPercent: 15
+  });
 
   const driveUrl = `https://drive.google.com/drive/folders/${driveFolderId}`;
   
@@ -72,8 +106,16 @@ export async function scanDriveFolder(folderId: number, driveFolderId: string): 
   });
 
   const items = output.entries || [];
+  const total = items.length;
+
+  onProgress?.({
+    message: `Discovered ${total} files in Google Drive folder. Extracting videos...`,
+    progressPercent: 30,
+    filesChecked: total
+  });
   
-  for (const item of items) {
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx];
     const videoId = item.id;
     if (!videoId) continue;
 
@@ -90,6 +132,14 @@ export async function scanDriveFolder(folderId: number, driveFolderId: string): 
     const absolute_path = remote_url;
     const filename = `${videoId}.gdrive`;
     
+    const percent = total > 0 ? Math.min(95, 30 + Math.round(((idx + 1) / total) * 65)) : 50;
+    onProgress?.({
+      message: `Processing Drive video (${idx + 1}/${total}): "${title}"`,
+      currentFile: title,
+      progressPercent: percent,
+      videosFound: newVideos + updatedVideos
+    });
+
     const existing = queryOne('SELECT id FROM videos WHERE absolute_path = ? AND folder_id = ?', [absolute_path, folderId]);
     if (existing) {
       runQuery('UPDATE videos SET title = ?, thumbnail_url = ?, updated_at_db = ? WHERE id = ?', 

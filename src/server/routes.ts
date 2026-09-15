@@ -11,7 +11,7 @@ import {
   VideoRecord,
   PlaybackProgressRecord
 } from './database.js';
-import { scanFolder, scanAllFolders, getScanState } from './scanner.js';
+import { scanFolder, scanAllFolders, getScanState, getScanProgress } from './scanner.js';
 import { handleVideoStream, isPathContained } from './streaming.js';
 import { createSampleMediaIfEmpty } from './sampleMedia.js';
 import { isNativeBrowserPlayable, isSupportedVideo } from './mimeTypes.js';
@@ -164,6 +164,14 @@ export function createApiRouter(): Router {
       );
 
       const newFolder = queryOne<FolderRecord>('SELECT * FROM folders WHERE id = ?', [result.lastInsertRowid]);
+      
+      // Automatically trigger background fetching for newly added folder/server
+      if (newFolder) {
+        scanFolder(newFolder.id).catch((scanErr: any) => {
+          console.warn(`[Auto-Scan Note] Folder ${newFolder.id}:`, scanErr.message);
+        });
+      }
+
       sendSuccess(res, newFolder, 201);
     } catch (err: any) {
       sendError(res, 'FOLDER_ADD_ERROR', err.message, 500);
@@ -230,6 +238,19 @@ export function createApiRouter(): Router {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return sendError(res, 'INVALID_ID', 'Invalid folder ID.');
+
+      const isBackground = req.query.background === 'true' || req.body?.background === true;
+      if (isBackground) {
+        const progress = getScanProgress();
+        if (progress.isScanning && progress.folderId === id) {
+          return sendSuccess(res, { started: true, alreadyRunning: true, folderId: id, message: 'Scan already in progress for this folder' }, 200);
+        }
+
+        scanFolder(id).catch((err: any) => {
+          console.warn(`[Background Scan Note] Folder ${id}:`, err.message);
+        });
+        return sendSuccess(res, { started: true, folderId: id, message: 'Background scan started' }, 202);
+      }
 
       const stats = await scanFolder(id);
       sendSuccess(res, stats);
@@ -594,9 +615,40 @@ export function createApiRouter(): Router {
     }
   });
 
-  // --- LIBRARY SCAN & STATS ---
-  router.post('/library/scan', async (_req: Request, res: Response) => {
+  // --- SCAN PROGRESS & STATUS ---
+  router.get('/scan/progress', (_req: Request, res: Response) => {
     try {
+      const progress = getScanProgress();
+      sendSuccess(res, progress);
+    } catch (err: any) {
+      sendError(res, 'SCAN_PROGRESS_ERROR', err.message, 500);
+    }
+  });
+
+  router.get('/scan/status', (_req: Request, res: Response) => {
+    try {
+      const progress = getScanProgress();
+      sendSuccess(res, progress);
+    } catch (err: any) {
+      sendError(res, 'SCAN_STATUS_ERROR', err.message, 500);
+    }
+  });
+
+  // --- LIBRARY SCAN & STATS ---
+  router.post('/library/scan', async (req: Request, res: Response) => {
+    try {
+      const isBackground = req.query.background === 'true' || req.body?.background === true;
+      if (isBackground) {
+        const progress = getScanProgress();
+        if (progress.isScanning) {
+          return sendSuccess(res, { started: false, message: 'Scan already in progress' });
+        }
+        scanAllFolders().catch((err: any) => {
+          console.warn('[Background Library Scan Error]:', err.message);
+        });
+        return sendSuccess(res, { started: true, message: 'Background library scan started' }, 202);
+      }
+
       const stats = await scanAllFolders();
       sendSuccess(res, stats);
     } catch (err: any) {
